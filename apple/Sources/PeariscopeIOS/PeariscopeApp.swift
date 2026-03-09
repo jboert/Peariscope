@@ -158,38 +158,39 @@ struct IOSContentView: View {
         }
     }
 
-    @State private var pulsePhase = false
-
     private var connectingView: some View {
         VStack(spacing: 20) {
             Spacer()
 
-            ZStack {
-                // Pulsing rings
-                Circle()
-                    .stroke(Color.pearGreen.opacity(0.1), lineWidth: 2)
-                    .frame(width: 100, height: 100)
-                    .scaleEffect(pulsePhase ? 1.3 : 0.9)
-                    .opacity(pulsePhase ? 0 : 0.6)
-                Circle()
-                    .stroke(Color.pearGreen.opacity(0.15), lineWidth: 2)
-                    .frame(width: 64, height: 64)
-                    .scaleEffect(pulsePhase ? 1.2 : 1.0)
-                    .opacity(pulsePhase ? 0.2 : 0.8)
+            TimelineView(.animation) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let squish = sin(t * 2 * .pi / 1.4)
+                let scaleX = 1.0 + 0.08 * squish
+                let scaleY = 1.0 - 0.08 * squish
+                let pulse = (1 + cos(t * 2 * .pi / 2.0)) / 2
+                let bounce = 1.0 + 0.03 * sin(t * 2 * .pi / 0.7)
 
-                // Center icon
                 ZStack {
                     Circle()
-                        .fill(Color.pearGreenDim)
-                        .frame(width: 52, height: 52)
+                        .stroke(Color.pearGreen.opacity(0.15), lineWidth: 2)
+                        .frame(width: 120, height: 120)
+                        .scaleEffect(1.0 + 0.4 * (1 - pulse))
+                        .opacity(pulse * 0.5)
+
+                    Circle()
+                        .stroke(Color.pearGreen.opacity(0.08), lineWidth: 1.5)
+                        .frame(width: 150, height: 150)
+                        .scaleEffect(1.0 + 0.3 * pulse)
+                        .opacity((1 - pulse) * 0.4)
+
                     Image("AppLogo")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 36, height: 36)
+                        .frame(width: 64, height: 64)
+                        .scaleEffect(x: scaleX * bounce, y: scaleY * bounce)
                 }
+                .frame(height: 150)
             }
-            .animation(.easeInOut(duration: 2).repeatForever(autoreverses: false), value: pulsePhase)
-            .onAppear { pulsePhase = true }
 
             VStack(spacing: 4) {
                 Text("Connecting")

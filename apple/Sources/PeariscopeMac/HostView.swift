@@ -240,7 +240,7 @@ struct HostActiveView: View {
         return VStack(spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
                 // QR code
-                if let qrImage = generateQRCode(from: qrPayload) {
+                if codeVisible, let qrImage = generateQRCode(from: qrPayload) {
                     Image(nsImage: qrImage)
                         .interpolation(.none)
                         .resizable()
@@ -249,6 +249,15 @@ struct HostActiveView: View {
                         .padding(6)
                         .background(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.primary.opacity(0.04))
+                            .frame(width: 92, height: 92)
+                        Image(systemName: "qrcode")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.quaternary)
+                    }
                 }
 
                 // Words

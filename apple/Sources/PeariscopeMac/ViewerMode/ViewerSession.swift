@@ -13,6 +13,7 @@ public final class ViewerSession: ObservableObject {
     @Published public var isCapturingInput = false
     @Published public var currentCodec: String = "H.264"
     @Published public var latencyMs: Double = 0
+    @Published public var videoSize: CGSize?
 
     private var h264Decoder: H264Decoder?
     private var h265Decoder: H265Decoder?
@@ -45,9 +46,14 @@ public final class ViewerSession: ObservableObject {
         let metalRenderer = renderer
         let onDecoded: (CVPixelBuffer, CMTime) -> Void = { [weak self] pixelBuffer, _ in
             metalRenderer?.display(pixelBuffer: pixelBuffer)
+            let w = CVPixelBufferGetWidth(pixelBuffer)
+            let h = CVPixelBufferGetHeight(pixelBuffer)
             DispatchQueue.main.async { [weak self] in
                 self?.frameCountInInterval += 1
                 self?.lastFrameTime = CFAbsoluteTimeGetCurrent()
+                if self?.videoSize == nil {
+                    self?.videoSize = CGSize(width: w, height: h)
+                }
             }
         }
 
@@ -78,7 +84,8 @@ public final class ViewerSession: ObservableObject {
             }
         }
         capture.start(in: mtkView)
-        capture.isCapturing = false
+        capture.isCapturing = true
+        isCapturingInput = true
         inputCapture = capture
     }
 

@@ -111,12 +111,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onClose: { [weak self] in
                 self?.viewerWindow?.close()
                 self?.viewerWindow = nil
+            },
+            onVideoSizeChanged: { [weak self] videoSize in
+                self?.resizeViewerWindow(to: videoSize)
+            },
+            onDisconnected: { [weak self] in
+                self?.resizeViewerWindowToConnect()
             }
         )
 
         let hostingView = NSHostingView(rootView: viewerContent)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 400),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -129,6 +135,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.activate(ignoringOtherApps: true)
 
         viewerWindow = window
+    }
+
+    private func resizeViewerWindow(to videoSize: CGSize) {
+        guard let window = viewerWindow, let screen = window.screen ?? NSScreen.main else { return }
+
+        // Account for title bar height
+        let titleBarHeight = window.frame.height - window.contentLayoutRect.height
+
+        // Target: video size + title bar, but cap to 90% of screen
+        let maxWidth = screen.visibleFrame.width * 0.9
+        let maxHeight = screen.visibleFrame.height * 0.9 - titleBarHeight
+        let scale = min(1.0, min(maxWidth / videoSize.width, maxHeight / videoSize.height))
+
+        let contentWidth = videoSize.width * scale
+        let contentHeight = videoSize.height * scale
+
+        let newFrame = NSRect(
+            x: screen.visibleFrame.midX - contentWidth / 2,
+            y: screen.visibleFrame.midY - (contentHeight + titleBarHeight) / 2,
+            width: contentWidth,
+            height: contentHeight + titleBarHeight
+        )
+        window.setFrame(newFrame, display: true, animate: true)
+        window.title = "Peariscope — \(Int(videoSize.width))x\(Int(videoSize.height))"
+    }
+
+    private func resizeViewerWindowToConnect() {
+        guard let window = viewerWindow, let screen = window.screen ?? NSScreen.main else { return }
+        let width: CGFloat = 420
+        let height: CGFloat = 400
+        let newFrame = NSRect(
+            x: screen.visibleFrame.midX - width / 2,
+            y: screen.visibleFrame.midY - height / 2,
+            width: width,
+            height: height
+        )
+        window.setFrame(newFrame, display: true, animate: true)
+        window.title = "Peariscope — Connect"
     }
 
     // MARK: - Runtime

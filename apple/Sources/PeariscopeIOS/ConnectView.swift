@@ -10,141 +10,76 @@ struct IOSConnectView: View {
     @ObservedObject var networkManager: NetworkManager
     @State private var connectionCode = ""
     @State private var showScanner = false
-    @State private var showSeedPhraseEntry = false
     @State private var savedHosts: [SavedHost] = SavedHost.loadAll()
     @State private var renamingHost: SavedHost?
     @State private var renameText = ""
-    /// DHT lookup results: code -> online status. Nil = pending.
     @State private var hostOnlineStatus: [String: Bool] = [:]
+    @FocusState private var isCodeFocused: Bool
+    @State private var suggestions: [String] = []
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                // Header
-                HStack(spacing: 10) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.pearGlow)
-                            .frame(width: 44, height: 44)
-                            .blur(radius: 12)
-                        Image("AppLogo")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 40, height: 40)
-                    }
+            VStack(spacing: 24) {
+                // Hero
+                heroSection
+                    .padding(.top, 32)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Peariscope")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                        Text("Peer-to-peer remote desktop")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
+                // Connect input
+                VStack(spacing: 0) {
+                    seedPhraseInput
 
-                // Quick actions
-                HStack(spacing: 10) {
-                    quickActionButton(
-                        title: "Scan QR",
-                        icon: "qrcode.viewfinder"
-                    ) {
-                        showScanner = true
-                    }
-                    .sheet(isPresented: $showScanner) {
-                        QRScannerSheet(networkManager: networkManager, isPresented: $showScanner)
-                    }
-
-                    quickActionButton(
-                        title: "Enter Seed Phrase",
-                        icon: "keyboard"
-                    ) {
-                        showSeedPhraseEntry = true
-                    }
-                }
-                .padding(.horizontal, 20)
-
-                // Saved hosts
-                if !savedHosts.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("RECENT")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.tertiary)
-                            .tracking(1.5)
-                            .padding(.horizontal, 22)
-
-                        ForEach(savedHosts) { host in
-                            Button {
-                                connectToHost(code: host.code)
-                            } label: {
-                                HStack(spacing: 10) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.pearGreenDim)
-                                            .frame(width: 34, height: 34)
-                                        Image(systemName: "desktopcomputer")
-                                            .font(.system(size: 14, weight: .medium))
+                    if !suggestions.isEmpty && isCodeFocused {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(suggestions, id: \.self) { word in
+                                    Button {
+                                        applySuggestion(word)
+                                    } label: {
+                                        Text(word)
+                                            .font(.system(size: 13, weight: .medium))
                                             .foregroundColor(.pearGreen)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 6)
+                                            .background(
+                                                Capsule()
+                                                    .fill(Color.pearGreen.opacity(0.12))
+                                            )
                                     }
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        HStack(spacing: 5) {
-                                            Text(host.name)
-                                                .font(.system(size: 14, weight: .medium))
-                                                .foregroundStyle(.primary)
-                                            Circle()
-                                                .fill(hostStatusColor(host))
-                                                .frame(width: 6, height: 6)
-                                                .shadow(color: hostStatusColor(host).opacity(0.6), radius: 2)
-                                        }
-                                        Text(hostTimeAgo(host))
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.tertiary)
-                                            .lineLimit(1)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(.quaternary)
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color(.secondarySystemBackground))
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button {
-                                    renameText = host.name
-                                    renamingHost = host
-                                } label: {
-                                    Label("Rename", systemImage: "pencil")
-                                }
-                                Button(role: .destructive) {
-                                    SavedHost.remove(code: host.code)
-                                    savedHosts = SavedHost.loadAll()
-                                } label: {
-                                    Label("Remove", systemImage: "trash")
+                                    .buttonStyle(.plain)
                                 }
                             }
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 8)
                         }
-                        .padding(.horizontal, 20)
                     }
                 }
+                .padding(.horizontal, 24)
 
-                if let error = networkManager.lastError {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background(Color.red.opacity(0.08))
-                        .clipShape(Capsule())
+                // Quick actions row
+                quickActions
+                    .padding(.horizontal, 24)
+
+                // Recent connections
+                if !savedHosts.isEmpty {
+                    recentSection
+                        .padding(.horizontal, 24)
                 }
 
+                // Error
+                if let error = networkManager.lastError {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                        Text(error)
+                            .font(.system(size: 11))
+                    }
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 24)
+                }
+
+                Spacer(minLength: 20)
+
+                // Footer
                 HStack(spacing: 4) {
                     Text("Powered by")
                     Image("PearLogo")
@@ -155,7 +90,6 @@ struct IOSConnectView: View {
                 }
                 .font(.system(size: 10))
                 .foregroundStyle(.quaternary)
-                .padding(.top, 2)
                 .padding(.bottom, 16)
             }
         }
@@ -178,55 +112,204 @@ struct IOSConnectView: View {
             }
             Button("Cancel", role: .cancel) { renamingHost = nil }
         }
-        .alert("Enter Seed Phrase", isPresented: $showSeedPhraseEntry) {
-            TextField("12 words", text: $connectionCode)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            Button("Connect") {
-                connectToHost(code: connectionCode)
-                connectionCode = ""
+    }
+
+    // MARK: - Hero
+
+    private var heroSection: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .fill(Color.pearGlow)
+                    .frame(width: 72, height: 72)
+                    .blur(radius: 20)
+                Image("AppLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 56, height: 56)
             }
-            Button("Cancel", role: .cancel) {
-                connectionCode = ""
-            }
-        } message: {
-            Text("Enter the 12-word seed phrase from the host")
+
+            Text("PEARISCOPE")
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .tracking(2)
+                .foregroundStyle(.primary)
+
+            Text("Connect to a remote desktop")
+                .font(.system(size: 13))
+                .foregroundStyle(.tertiary)
         }
     }
 
-    private func quickActionButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.pearGreenDim)
-                        .frame(width: 36, height: 36)
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(.pearGreen)
+    // MARK: - Seed Phrase Input
+
+    private var seedPhraseInput: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+
+                TextField("Enter seed phrase...", text: $connectionCode)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 14))
+                    .focused($isCodeFocused)
+                    .submitLabel(.go)
+                    .onSubmit { connectToHost(code: connectionCode) }
+                    .onChange(of: connectionCode) { updateSuggestions() }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.tertiarySystemBackground))
+            )
+
+            Button {
+                connectToHost(code: connectionCode)
+            } label: {
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(connectionCode.isEmpty ? Color.gray.opacity(0.3) : Color.pearGreen)
+                    )
+            }
+            .disabled(connectionCode.isEmpty)
+        }
+    }
+
+    // MARK: - Quick Actions
+
+    private var quickActions: some View {
+        HStack(spacing: 10) {
+            quickActionButton(
+                icon: "qrcode.viewfinder",
+                title: "Scan QR"
+            ) {
+                showScanner = true
+            }
+            .sheet(isPresented: $showScanner) {
+                QRScannerSheet(networkManager: networkManager, isPresented: $showScanner)
+            }
+
+            quickActionButton(
+                icon: "doc.on.clipboard",
+                title: "Paste"
+            ) {
+                if let clip = UIPasteboard.general.string, !clip.isEmpty {
+                    connectionCode = clip
                 }
+            }
+        }
+    }
+
+    private func quickActionButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundStyle(.pearGradient)
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(
+            .padding(.vertical, 16)
+            .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(Color.primary.opacity(0.04), lineWidth: 1)
+                    .fill(Color(.tertiarySystemBackground))
             )
         }
         .buttonStyle(.plain)
     }
 
+    // MARK: - Recent Section
+
+    private var recentSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("RECENT")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.tertiary)
+                .tracking(1)
+                .padding(.leading, 4)
+
+            VStack(spacing: 0) {
+                ForEach(Array(savedHosts.enumerated()), id: \.element.id) { index, host in
+                    if index > 0 {
+                        Divider()
+                            .padding(.leading, 48)
+                    }
+
+                    Button {
+                        connectToHost(code: host.code)
+                    } label: {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.pearGreen.opacity(0.12))
+                                    .frame(width: 36, height: 36)
+                                Image(systemName: "desktopcomputer")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.pearGreen)
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 5) {
+                                    Text(host.name)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Circle()
+                                        .fill(hostStatusColor(host))
+                                        .frame(width: 5, height: 5)
+                                }
+                                Text(hostTimeAgo(host))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.quaternary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button {
+                            renameText = host.name
+                            renamingHost = host
+                        } label: {
+                            Label("Rename", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            SavedHost.remove(code: host.code)
+                            savedHosts = SavedHost.loadAll()
+                        } label: {
+                            Label("Remove", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color(.tertiarySystemBackground))
+            )
+        }
+    }
+
+    // MARK: - Helpers
+
     private func hostStatusColor(_ host: SavedHost) -> Color {
-        // Use DHT result if available
         if let online = hostOnlineStatus[host.code.uppercased()] {
             return online ? .green : Color(.systemGray3)
         }
-        // Fallback to time-based while DHT lookup is pending
         let elapsed = Date().timeIntervalSince(host.lastConnected)
         if elapsed < 300 { return .green }
         if elapsed < 3600 { return .yellow }
@@ -235,7 +318,6 @@ struct IOSConnectView: View {
     }
 
     private func hostTimeAgo(_ host: SavedHost) -> String {
-        // Show online/offline if DHT result available
         if let online = hostOnlineStatus[host.code.uppercased()] {
             if online { return "Online" }
             let elapsed = Date().timeIntervalSince(host.lastConnected)
@@ -245,7 +327,6 @@ struct IOSConnectView: View {
             let days = Int(elapsed / 86400)
             return days == 1 ? "Offline · Yesterday" : "Offline · \(days)d ago"
         }
-        // Time-based fallback while probing
         let elapsed = Date().timeIntervalSince(host.lastConnected)
         if elapsed < 60 { return "Just now" }
         if elapsed < 3600 { return "\(Int(elapsed / 60))m ago" }
@@ -262,7 +343,6 @@ struct IOSConnectView: View {
             }
         }
         Task {
-            // Ensure worklet is running for DHT lookups
             if !networkManager.isWorkletAlive {
                 try? await networkManager.startRuntime()
             }
@@ -272,12 +352,37 @@ struct IOSConnectView: View {
         }
     }
 
+    private func updateSuggestions() {
+        let words = connectionCode.split(separator: " ")
+        guard let lastWord = words.last, !lastWord.isEmpty else {
+            suggestions = []
+            return
+        }
+        let prefix = String(lastWord).lowercased()
+        // Don't show suggestions if word is already complete
+        if BIP39.isValidWord(prefix) && connectionCode.hasSuffix(" ") {
+            suggestions = []
+            return
+        }
+        suggestions = Array(BIP39.completions(for: prefix).prefix(8))
+    }
+
+    private func applySuggestion(_ word: String) {
+        var words = connectionCode.split(separator: " ").map(String.init)
+        if !words.isEmpty {
+            words[words.count - 1] = word
+        } else {
+            words.append(word)
+        }
+        connectionCode = words.joined(separator: " ") + " "
+        suggestions = []
+    }
+
     private func connectToHost(code: String) {
         let trimmed = code.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         SavedHost.save(code: trimmed)
         savedHosts = SavedHost.loadAll()
-        // [4] Haptic on connect
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         Task {
             do {
@@ -309,7 +414,6 @@ struct SavedHost: Identifiable, Codable {
 
     static func save(code: String, name: String? = nil) {
         var hosts = loadAll()
-        // Preserve existing custom name if no new name provided
         let existingName = hosts.first(where: { $0.code.uppercased() == code.uppercased() })?.name
         hosts.removeAll { $0.code.uppercased() == code.uppercased() }
         let host = SavedHost(
@@ -365,7 +469,6 @@ struct QRScannerSheet: View {
                     scannedCode = code
                     Task {
                         do {
-                            // Save the connection code for quick reconnect
                             let displayCode = Self.extractCode(from: code)
                             SavedHost.save(code: displayCode)
                             try await networkManager.connectFromQR(code)

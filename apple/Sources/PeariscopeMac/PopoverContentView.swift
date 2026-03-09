@@ -110,55 +110,32 @@ struct PopoverContentView: View {
 
     private var footer: some View {
         HStack(spacing: 0) {
-            Button {
-                onOpenViewer()
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "display")
-                        .font(.system(size: 10))
-                    Text("Connect")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-
+            footerButton(icon: "display", title: "Connect", action: onOpenViewer)
             Divider().frame(height: 20)
-
-            Button {
-                onQuit()
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "power")
-                        .font(.system(size: 10))
-                    Text("Quit")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+            footerButton(icon: "power", title: "Quit", action: onQuit)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
+    }
+
+    private func footerButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Color.primary.opacity(0.001))
+        .onTapGesture { action() }
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
     }
 }

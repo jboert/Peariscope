@@ -168,13 +168,46 @@ struct IOSViewerView: View {
             // Loading overlay — only before first frame
             if viewerSession.isActive && !viewerSession.hasReceivedFirstFrame && viewerSession.pendingPin == nil {
                 Color.black.ignoresSafeArea()
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .pearGreen))
-                        .scaleEffect(1.3)
-                    Text("Connecting...")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.6))
+                TimelineView(.animation) { timeline in
+                    let t = timeline.date.timeIntervalSinceReferenceDate
+                    let squish = sin(t * 2 * .pi / 1.4)
+                    let scaleX = 1.0 + 0.08 * squish
+                    let scaleY = 1.0 - 0.08 * squish
+                    let pulse = (1 + cos(t * 2 * .pi / 2.0)) / 2
+                    let bounce = 1.0 + 0.03 * sin(t * 2 * .pi / 0.7)
+
+                    VStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .stroke(Color.pearGreen.opacity(0.15), lineWidth: 2)
+                                .frame(width: 100, height: 100)
+                                .scaleEffect(1.0 + 0.4 * (1 - pulse))
+                                .opacity(pulse * 0.5)
+
+                            Image("AppLogo")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 52, height: 52)
+                                .scaleEffect(x: scaleX * bounce, y: scaleY * bounce)
+                        }
+
+                        Text("Waiting for video...")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.6))
+
+                        Button {
+                            viewerSession.disconnect()
+                            isInViewerMode = false
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.6))
+                                .frame(width: 40, height: 40)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(Circle())
+                        }
+                        .padding(.top, 8)
+                    }
                 }
             }
         }

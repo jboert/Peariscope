@@ -99,6 +99,8 @@
 		F734536F41C8703A05255E0C /* BareKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FA00000000000001SEC00001 /* PeerFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB00000000000001SEC00001 /* PeerFingerprint.swift */; };
 		FA00000000000002SEC00002 /* PeerFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB00000000000001SEC00001 /* PeerFingerprint.swift */; };
+		B1P390000000000100000001 /* BIP39Wordlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1P390000000000000000001 /* BIP39Wordlist.swift */; };
+		B1P390000000000100000002 /* BIP39Wordlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1P390000000000000000001 /* BIP39Wordlist.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -212,6 +214,7 @@
 		F80B03F27952F62AE6C74792 /* H265Decoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H265Decoder.swift; sourceTree = "<group>"; };
 		F8793959EA6047FB4596D592 /* PeariscopeMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PeariscopeMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FB00000000000001SEC00001 /* PeerFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerFingerprint.swift; sourceTree = "<group>"; };
+		B1P390000000000000000001 /* BIP39Wordlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BIP39Wordlist.swift; sourceTree = "<group>"; };
 		FF0656F6B7950A85657A6E82 /* QRPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRPairing.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -321,6 +324,7 @@
 		25C0D8F94C928809C31E1844 /* PeariscopeCore */ = {
 			isa = PBXGroup;
 			children = (
+				B1P390000000000000000001 /* BIP39Wordlist.swift */,
 				B6DC569AFEE4D4454821DEF2 /* Auth */,
 				00D546A202B59A851ED9613B /* Clipboard */,
 				0CFB6B4EEB59B900141553C1 /* Input */,
@@ -722,6 +726,7 @@
 				0419F0D1BA61ED89749015AB /* Renderer.swift in Sources */,
 				0BDF3801E9D6A3AEB48346C1 /* messages.pb.swift in Sources */,
 				FA00000000000001SEC00001 /* PeerFingerprint.swift in Sources */,
+				B1P390000000000100000001 /* BIP39Wordlist.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -746,6 +751,7 @@
 				85AEF132F0237514BAB2900A /* Renderer.swift in Sources */,
 				D980D1D0C25AFE9D03F21CC3 /* messages.pb.swift in Sources */,
 				FA00000000000002SEC00002 /* PeerFingerprint.swift in Sources */,
+				B1P390000000000100000002 /* BIP39Wordlist.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

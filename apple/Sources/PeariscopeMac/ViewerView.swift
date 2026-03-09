@@ -64,6 +64,8 @@ struct ViewerWindowView: View {
     @ObservedObject var networkManager: NetworkManager
     @StateObject private var viewerSession: ViewerSession
     let onClose: () -> Void
+    let onVideoSizeChanged: ((CGSize) -> Void)?
+    let onDisconnected: (() -> Void)?
 
     @State private var connectionCode = ""
     @State private var savedHosts: [MacSavedHost] = MacSavedHost.loadAll()
@@ -71,10 +73,14 @@ struct ViewerWindowView: View {
     @State private var renameText = ""
     @State private var hoveredHostId: String?
     @State private var hostOnlineStatus: [String: Bool] = [:]
+    @State private var isConnecting = false
+    @State private var suggestions: [String] = []
 
-    init(networkManager: NetworkManager, onClose: @escaping () -> Void) {
+    init(networkManager: NetworkManager, onClose: @escaping () -> Void, onVideoSizeChanged: ((CGSize) -> Void)? = nil, onDisconnected: (() -> Void)? = nil) {
         self.networkManager = networkManager
         self.onClose = onClose
+        self.onVideoSizeChanged = onVideoSizeChanged
+        self.onDisconnected = onDisconnected
         _viewerSession = StateObject(wrappedValue: ViewerSession(networkManager: networkManager))
     }
 
@@ -82,11 +88,27 @@ struct ViewerWindowView: View {
         VStack(spacing: 0) {
             if viewerSession.isActive {
                 viewerActiveView
+            } else if isConnecting {
+                connectingView
             } else {
                 connectView
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: viewerSession.isActive)
+        .animation(.easeInOut(duration: 0.2), value: isConnecting)
         .tint(.pearGreen)
+        .onChange(of: viewerSession.videoSize) {
+            if let size = viewerSession.videoSize {
+                onVideoSizeChanged?(size)
+            }
+        }
+        .onChange(of: viewerSession.isActive) {
+            if viewerSession.isActive {
+                isConnecting = false
+            } else {
+                onDisconnected?()
+            }
+        }
         .alert("Rename Connection", isPresented: Binding(
             get: { renamingHost != nil },
             set: { if !$0 { renamingHost = nil } }
@@ -101,6 +123,72 @@ struct ViewerWindowView: View {
             }
             Button("Cancel", role: .cancel) { renamingHost = nil }
         }
+    }
+
+    // MARK: - Connecting
+
+    private var connectingView: some View {
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            let squish = sin(t * 2 * .pi / 1.4) // -1→1 cycle over 1.4s
+            let scaleX = 1.0 + 0.08 * squish
+            let scaleY = 1.0 - 0.08 * squish
+            let pulse = (1 + cos(t * 2 * .pi / 2.0)) / 2
+            let bounce = 1.0 + 0.03 * sin(t * 2 * .pi / 0.7)
+
+            VStack(spacing: 20) {
+                Spacer()
+
+                ZStack {
+                    Circle()
+                        .stroke(Color.pearGreen.opacity(0.15), lineWidth: 2)
+                        .frame(width: 100, height: 100)
+                        .scaleEffect(1.0 + 0.4 * (1 - pulse))
+                        .opacity(pulse * 0.5)
+
+                    Circle()
+                        .stroke(Color.pearGreen.opacity(0.08), lineWidth: 1.5)
+                        .frame(width: 130, height: 130)
+                        .scaleEffect(1.0 + 0.3 * pulse)
+                        .opacity((1 - pulse) * 0.4)
+
+                    Image("AppLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 56, height: 56)
+                        .scaleEffect(x: scaleX * bounce, y: scaleY * bounce)
+                }
+                .frame(height: 130)
+
+                VStack(spacing: 6) {
+                    Text("Connecting...")
+                        .font(.system(size: 15, weight: .semibold))
+
+                    Text("Looking for peer on the network")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+
+                Button {
+                    isConnecting = false
+                    viewerSession.disconnect()
+                } label: {
+                    Text("Cancel")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.primary.opacity(0.05))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Active Viewer
@@ -165,7 +253,43 @@ struct ViewerWindowView: View {
             .padding(.vertical, 5)
             .background(.bar)
 
-            MetalViewRepresentable(viewerSession: viewerSession)
+            ZStack {
+                MetalViewRepresentable(viewerSession: viewerSession)
+
+                if viewerSession.videoSize == nil {
+                    // Waiting for first frame
+                    TimelineView(.animation) { timeline in
+                        let t = timeline.date.timeIntervalSinceReferenceDate
+                        let squish = sin(t * 2 * .pi / 1.4)
+                        let scaleX = 1.0 + 0.08 * squish
+                        let scaleY = 1.0 - 0.08 * squish
+                        let pulse = (1 + cos(t * 2 * .pi / 2.0)) / 2
+                        let bounce = 1.0 + 0.03 * sin(t * 2 * .pi / 0.7)
+
+                        VStack(spacing: 16) {
+                            ZStack {
+                                Circle()
+                                    .stroke(Color.pearGreen.opacity(0.15), lineWidth: 2)
+                                    .frame(width: 90, height: 90)
+                                    .scaleEffect(1.0 + 0.4 * (1 - pulse))
+                                    .opacity(pulse * 0.5)
+
+                                Image("AppLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 48, height: 48)
+                                    .scaleEffect(x: scaleX * bounce, y: scaleY * bounce)
+                            }
+
+                            Text("Waiting for video...")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.black.opacity(0.8))
+                }
+            }
         }
     }
 
@@ -184,34 +308,61 @@ struct ViewerWindowView: View {
                     .font(.system(size: 16, weight: .semibold))
 
                 // Seed phrase input
-                HStack(spacing: 8) {
-                    TextField("Enter seed phrase...", text: $connectionCode)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.primary.opacity(0.04))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                        )
-                        .onSubmit { connectToCode(connectionCode) }
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        TextField("Enter seed phrase...", text: $connectionCode)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.primary.opacity(0.04))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                            .onSubmit { connectToCode(connectionCode) }
+                            .onChange(of: connectionCode) { updateSuggestions() }
 
-                    Button {
-                        connectToCode(connectionCode)
-                    } label: {
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(connectionCode.isEmpty ? Color.gray.opacity(0.2) : Color.pearGreen)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        Button {
+                            connectToCode(connectionCode)
+                        } label: {
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(connectionCode.isEmpty ? Color.gray.opacity(0.2) : Color.pearGreen)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(connectionCode.isEmpty)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(connectionCode.isEmpty)
+
+                    if !suggestions.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 4) {
+                                ForEach(suggestions, id: \.self) { word in
+                                    Button {
+                                        applySuggestion(word)
+                                    } label: {
+                                        Text(word)
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.pearGreen)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(
+                                                Capsule()
+                                                    .fill(Color.pearGreen.opacity(0.1))
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
                 }
                 .padding(.horizontal, 40)
             }
@@ -320,15 +471,42 @@ struct ViewerWindowView: View {
 
     // MARK: - Actions
 
+    private func updateSuggestions() {
+        let words = connectionCode.split(separator: " ")
+        guard let lastWord = words.last, !lastWord.isEmpty else {
+            suggestions = []
+            return
+        }
+        let prefix = String(lastWord).lowercased()
+        if BIP39.isValidWord(prefix) && connectionCode.hasSuffix(" ") {
+            suggestions = []
+            return
+        }
+        suggestions = Array(BIP39.completions(for: prefix).prefix(8))
+    }
+
+    private func applySuggestion(_ word: String) {
+        var words = connectionCode.split(separator: " ").map(String.init)
+        if !words.isEmpty {
+            words[words.count - 1] = word
+        } else {
+            words.append(word)
+        }
+        connectionCode = words.joined(separator: " ") + " "
+        suggestions = []
+    }
+
     private func connectToCode(_ code: String) {
         let trimmed = code.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         MacSavedHost.save(code: trimmed)
         savedHosts = MacSavedHost.loadAll()
+        isConnecting = true
         Task {
             do {
                 try await viewerSession.connect(code: trimmed)
             } catch {
+                isConnecting = false
                 networkManager.lastError = "Connect error: \(error.localizedDescription)"
             }
         }
