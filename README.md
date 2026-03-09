@@ -2,7 +2,7 @@
 
 Peer-to-peer remote desktop for macOS, iOS, and Windows. Share your screen and control remote devices over encrypted P2P connections — no servers, no accounts.
 
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-GPLv3-blue)
 
 <p align="center">
   <img src="screenshots/mac-home.png" width="520" alt="macOS app">
@@ -97,4 +97,4 @@ See `windows/` directory (work in progress).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL v3 — see [LICENSE](LICENSE).
