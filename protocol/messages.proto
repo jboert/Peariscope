@@ -1,0 +1,235 @@
+syntax = "proto3";
+
+package peariscope;
+
+// Top-level message wrapper for IPC between native layer and Pear runtime
+message IpcMessage {
+  uint32 id = 1;           // Request/response correlation ID
+  oneof payload {
+    // Networking commands (native -> pear)
+    StartHosting start_hosting = 10;
+    StopHosting stop_hosting = 11;
+    ConnectToPeer connect_to_peer = 12;
+    Disconnect disconnect = 13;
+
+    // Networking events (pear -> native)
+    PeerConnected peer_connected = 20;
+    PeerDisconnected peer_disconnected = 21;
+    HostingStarted hosting_started = 22;
+    HostingStopped hosting_stopped = 23;
+    ConnectionEstablished connection_established = 24;
+    ConnectionFailed connection_failed = 25;
+    Error error = 26;
+
+    // Data streaming (bidirectional)
+    StreamData stream_data = 30;
+
+    // Status
+    StatusRequest status_request = 40;
+    StatusResponse status_response = 41;
+  }
+}
+
+// --- Networking Commands ---
+
+message StartHosting {
+  bytes public_key = 1;    // Host's public key to advertise
+}
+
+message StopHosting {}
+
+message ConnectToPeer {
+  string connection_code = 1;  // Short code or full public key hex
+}
+
+message Disconnect {
+  bytes peer_key = 1;      // Which peer to disconnect from
+}
+
+// --- Networking Events ---
+
+message PeerConnected {
+  bytes peer_key = 1;
+  string peer_name = 2;
+  uint32 stream_id = 3;    // ID for this peer's streams
+}
+
+message PeerDisconnected {
+  bytes peer_key = 1;
+  string reason = 2;
+}
+
+message HostingStarted {
+  bytes public_key = 1;
+  string connection_code = 2;   // Short shareable code
+  string relay_host = 3;        // Local IP for direct TCP relay (iOS)
+  uint32 relay_port = 4;        // TCP port for relay
+}
+
+message HostingStopped {}
+
+message ConnectionEstablished {
+  bytes peer_key = 1;
+  uint32 stream_id = 2;
+}
+
+message ConnectionFailed {
+  string connection_code = 1;
+  string reason = 2;
+}
+
+message Error {
+  uint32 code = 1;
+  string message = 2;
+}
+
+// --- Data Streaming ---
+
+message StreamData {
+  uint32 stream_id = 1;
+  StreamChannel channel = 2;
+  bytes data = 3;
+}
+
+enum StreamChannel {
+  STREAM_CHANNEL_VIDEO = 0;
+  STREAM_CHANNEL_INPUT = 1;
+  STREAM_CHANNEL_CONTROL = 2;
+}
+
+// --- Input Events ---
+
+message InputEvent {
+  uint32 timestamp_ms = 1;
+  oneof event {
+    KeyEvent key = 2;
+    MouseMoveEvent mouse_move = 3;
+    MouseButtonEvent mouse_button = 4;
+    ScrollEvent scroll = 5;
+  }
+}
+
+message KeyEvent {
+  uint32 keycode = 1;       // Platform-neutral keycode
+  uint32 modifiers = 2;     // Bitmask: shift=1, ctrl=2, alt=4, meta=8
+  bool pressed = 3;         // true = down, false = up
+}
+
+message MouseMoveEvent {
+  float x = 1;              // Normalized 0.0-1.0 relative to screen
+  float y = 2;
+}
+
+message MouseButtonEvent {
+  uint32 button = 1;        // 0=left, 1=right, 2=middle
+  bool pressed = 2;
+  float x = 3;
+  float y = 4;
+}
+
+message ScrollEvent {
+  float delta_x = 1;
+  float delta_y = 2;
+}
+
+// --- Control Messages ---
+
+message ControlMessage {
+  oneof msg {
+    CodecNegotiation codec_negotiation = 1;
+    RequestIdr request_idr = 2;
+    QualityReport quality_report = 3;
+    ClipboardData clipboard = 4;
+    FrameTimestamp frame_timestamp = 5;
+    PeerChallenge peer_challenge = 6;
+    PeerChallengeResponse peer_challenge_response = 7;
+    DisplayList display_list = 8;
+    SwitchDisplay switch_display = 9;
+    CursorPosition cursor_position = 10;
+  }
+}
+
+// Sent by host at high frequency for client-side cursor rendering.
+// Viewer renders a local cursor sprite at this position for low-latency feel.
+message CursorPosition {
+  float x = 1;              // Normalized 0.0-1.0 relative to screen
+  float y = 2;
+}
+
+// Sent by host to new peer — contains a 4-digit PIN for out-of-band verification
+message PeerChallenge {
+  string pin = 1;
+  bytes peer_key = 2;
+}
+
+// Sent by viewer to confirm the PIN displayed on the host
+message PeerChallengeResponse {
+  string pin = 1;
+  bool accepted = 2;
+}
+
+// Sent by host to advertise available displays
+message DisplayList {
+  repeated DisplayInfo displays = 1;
+}
+
+message DisplayInfo {
+  uint32 display_id = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  string name = 4;
+  bool is_active = 5;
+}
+
+// Sent by viewer to request switching to a different display
+message SwitchDisplay {
+  uint32 display_id = 1;
+}
+
+// Sent alongside video frames for latency measurement.
+// Host embeds capture time, viewer measures delta to calculate end-to-end latency.
+message FrameTimestamp {
+  uint64 capture_time_ms = 1;  // milliseconds since epoch
+  uint32 frame_id = 2;         // monotonic frame counter
+}
+
+message CodecNegotiation {
+  repeated Codec supported_codecs = 1;
+  Codec selected_codec = 2;
+}
+
+enum Codec {
+  CODEC_H264 = 0;
+  CODEC_H265 = 1;
+}
+
+message RequestIdr {}
+
+message QualityReport {
+  uint32 rtt_ms = 1;
+  float packet_loss = 2;     // 0.0-1.0
+  uint32 bitrate_kbps = 3;
+  uint32 fps = 4;
+  uint32 screen_width = 5;   // Viewer's native screen width in pixels
+  uint32 screen_height = 6;  // Viewer's native screen height in pixels
+}
+
+message ClipboardData {
+  string text = 1;
+}
+
+// --- Status ---
+
+message StatusRequest {}
+
+message StatusResponse {
+  bool is_hosting = 1;
+  bool is_connected = 2;
+  repeated PeerInfo connected_peers = 3;
+}
+
+message PeerInfo {
+  bytes public_key = 1;
+  string name = 2;
+  uint32 rtt_ms = 3;
+}

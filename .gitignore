@@ -1,0 +1,40 @@
+# Build artifacts
+apple/build/
+apple/.build/
+apple/.swiftpm/
+*.xcarchive
+
+# Dependencies
+pear/node_modules/
+
+# Bundles (regenerated from worklet.js)
+pear/*.bundle
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+DerivedData/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Binary outputs
+*.ipa
+*.zip
+
+# Derived/temp images
+logo1_cropped.png
+logo1_green_bg.png
+
+# Development notes (not docs)
+PEAR.md
+PLAN.md
+SUGGESTIONS.md
+
+# Test files
+test-bare.swift
+test/
+
+# Claude
+.claude/

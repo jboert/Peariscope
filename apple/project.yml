@@ -1,0 +1,168 @@
+name: Peariscope
+options:
+  bundleIdPrefix: com.peariscope
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+  generateEmptyDirectories: true
+
+packages:
+  SwiftProtobuf:
+    url: https://github.com/apple/swift-protobuf.git
+    from: "1.25.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: H87Y6XJ9S2
+
+targets:
+  PeariscopeCoreMac:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/PeariscopeCore
+    dependencies:
+      - package: SwiftProtobuf
+      - framework: Frameworks/BareKit.xcframework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.peariscope.core
+        PRODUCT_NAME: PeariscopeCore
+        SKIP_INSTALL: true
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: true
+
+  PeariscopeCoreIOS:
+    type: framework
+    platform: iOS
+    sources:
+      - path: Sources/PeariscopeCore
+    dependencies:
+      - package: SwiftProtobuf
+      - framework: Frameworks/BareKit.xcframework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.peariscope.core
+        PRODUCT_NAME: PeariscopeCore
+        SKIP_INSTALL: true
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: true
+
+  PeariscopeMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/PeariscopeMac
+      - path: Resources/Assets.xcassets
+    dependencies:
+      - target: PeariscopeCoreMac
+      - framework: Frameworks/BareKit.xcframework
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.peariscope.mac
+        INFOPLIST_FILE: Resources/MacOS-Info.plist
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_NAME: Peariscope
+    postBuildScripts:
+      - name: "Bundle Pear Runtime"
+        script: |
+          PEAR_SRC="${SRCROOT}/../pear"
+          PEAR_DEST="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/pear"
+          rm -rf "$PEAR_DEST"
+          mkdir -p "$PEAR_DEST"
+
+          # Pack the worklet bundle for macOS
+          cd "$PEAR_SRC"
+          PATH="${PATH}:${PEAR_SRC}/node_modules/.bin"
+          if [ ! -f "$PEAR_SRC/worklet.bundle" ] || [ "$PEAR_SRC/worklet.js" -nt "$PEAR_SRC/worklet.bundle" ]; then
+            npx bare-pack --preset darwin --linked --base "$PEAR_SRC" --out "$PEAR_SRC/worklet.bundle" "$PEAR_SRC/worklet.js" 2>&1 || true
+          fi
+          cp "$PEAR_SRC/worklet.bundle" "$PEAR_DEST/" 2>/dev/null || true
+
+          # Copy macOS native addon frameworks
+          if [ -d "$PEAR_SRC/addons-darwin" ]; then
+            for fw in "$PEAR_SRC/addons-darwin"/*.framework; do
+              if [ -d "$fw" ]; then
+                cp -R "$fw" "${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Frameworks/"
+              fi
+            done
+          fi
+
+          # Also copy legacy files for Node.js fallback
+          cp "$PEAR_SRC/index.js" "$PEAR_DEST/" 2>/dev/null || true
+          cp "$PEAR_SRC/package.json" "$PEAR_DEST/" 2>/dev/null || true
+          cp -R "$PEAR_SRC/lib" "$PEAR_DEST/lib" 2>/dev/null || true
+          if [ -d "$PEAR_SRC/node_modules" ]; then
+            cp -R "$PEAR_SRC/node_modules" "$PEAR_DEST/node_modules"
+          fi
+          PROTO_DEST="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/protocol"
+          mkdir -p "$PROTO_DEST"
+          cp "${SRCROOT}/../protocol/messages.proto" "$PROTO_DEST/"
+          NODE_SRC=$(which node)
+          NODE_DEST="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/node"
+          cp "$NODE_SRC" "$NODE_DEST" 2>/dev/null || true
+          chmod +x "$NODE_DEST" 2>/dev/null || true
+        basedOnDependencyAnalysis: false
+
+  PeariscopeIOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/PeariscopeIOS
+      - path: Resources/Assets.xcassets
+    dependencies:
+      - target: PeariscopeCoreIOS
+      - framework: Frameworks/BareKit.xcframework
+        embed: true
+      # Bare native addon xcframeworks
+      - framework: Frameworks/bare-buffer.3.5.0.xcframework
+        embed: true
+      - framework: Frameworks/bare-fs.4.5.5.xcframework
+        embed: true
+      - framework: Frameworks/bare-module-lexer.1.4.7.xcframework
+        embed: true
+      - framework: Frameworks/bare-os.3.7.1.xcframework
+        embed: true
+      - framework: Frameworks/bare-pipe.4.1.3.xcframework
+        embed: true
+      - framework: Frameworks/bare-structured-clone.1.5.2.xcframework
+        embed: true
+      - framework: Frameworks/bare-subprocess.5.2.2.xcframework
+        embed: true
+      - framework: Frameworks/bare-type.1.1.0.xcframework
+        embed: true
+      - framework: Frameworks/bare-url.2.3.2.xcframework
+        embed: true
+      - framework: Frameworks/sodium-native.5.0.10.xcframework
+        embed: true
+      - framework: Frameworks/udx-native.1.19.2.xcframework
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.peariscope.ios
+        INFOPLIST_FILE: Resources/IOS-Info.plist
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_NAME: Peariscope
+        TARGETED_DEVICE_FAMILY: "1,2"
+    postBuildScripts:
+      - name: "Bundle Pear Runtime for iOS"
+        script: |
+          PEAR_SRC="${SRCROOT}/../pear"
+          PEAR_DEST="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/pear"
+          rm -rf "$PEAR_DEST"
+          mkdir -p "$PEAR_DEST"
+
+          # Pack the worklet bundle for iOS
+          cd "$PEAR_SRC"
+          PATH="${PATH}:${PEAR_SRC}/node_modules/.bin"
+          if [ ! -f "$PEAR_SRC/worklet-ios.bundle" ] || [ "$PEAR_SRC/worklet.js" -nt "$PEAR_SRC/worklet-ios.bundle" ]; then
+            npx bare-pack --preset ios --linked --base "$PEAR_SRC" --out "$PEAR_SRC/worklet-ios.bundle" "$PEAR_SRC/worklet.js" 2>&1 || true
+          fi
+          cp "$PEAR_SRC/worklet-ios.bundle" "$PEAR_DEST/worklet.bundle" 2>/dev/null || true
+        basedOnDependencyAnalysis: false

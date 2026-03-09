@@ -1,0 +1,1164 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		011CDC44211307A1DE57A76E /* bare-url.2.3.2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6E7AD8C8F0A61672314DAD53 /* bare-url.2.3.2.xcframework */; };
+		036299F2C96821547627BD58 /* IpcClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D543CC699DC4357CFB3B1F2E /* IpcClient.swift */; };
+		0419F0D1BA61ED89749015AB /* Renderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93976E5C8B088344D6F8DE72 /* Renderer.swift */; };
+		08893176521A9192BE4F9377 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = D7AB362247E63A4E20C7AC15 /* SwiftProtobuf */; };
+		0AA8C01F80DD363ED8634AC1 /* PeariscopeCoreMac.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B6AE5936EB39AA1C85955572 /* PeariscopeCoreMac.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		0ABDCEC018C1F7B637958765 /* FramePacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2040C55CAA5BDEC6F5254620 /* FramePacer.swift */; };
+		0BDF3801E9D6A3AEB48346C1 /* messages.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F5B61172BA81C1310B1B2D6 /* messages.pb.swift */; };
+		0CB5FF235D9D6C15760100BE /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE474B86ED331210BFAFAAB /* NetworkManager.swift */; };
+		134E2E63448636B22ECD2B7B /* AdaptiveQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35C767646637DEA08DC6446F /* AdaptiveQuality.swift */; };
+		167359E8DA9C1673300CD49A /* udx-native.1.19.2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 32C7CB3FBB6D610B0A615EC1 /* udx-native.1.19.2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		18132A3FF309F07517CFBDB7 /* bare-structured-clone.1.5.2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE0F7F91639DECA12F28DAF9 /* bare-structured-clone.1.5.2.xcframework */; };
+		22CDC9F51D7FF620F1C75921 /* H265Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80B03F27952F62AE6C74792 /* H265Decoder.swift */; };
+		2352BA077F86414EBD876708 /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CE3DD122B6624C2A2D4C9C /* KeyManager.swift */; };
+		23BCAB013858FD69D5AEDDD8 /* bare-fs.4.5.5.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B3A90468AA3EE4B4D0FDE921 /* bare-fs.4.5.5.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		23DA3993D95FFF6AA3CE43BA /* bare-buffer.3.5.0.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 95E63E3910F8C90020AB3B57 /* bare-buffer.3.5.0.xcframework */; };
+		2C0A65932699F3ED8A9DE056 /* H265Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80B03F27952F62AE6C74792 /* H265Decoder.swift */; };
+		308A15C33E2882DEA65F25C4 /* PearProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DC2119397B169ACEE7CFD9 /* PearProcess.swift */; };
+		3441D25C16305A89FC8547AE /* BareWorkletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFCE9803E1F196231F98D08 /* BareWorkletBridge.swift */; };
+		35FBE8F3E33D212715C122E7 /* LatencyTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E47FE932E6FA6BFD4EE21F /* LatencyTracker.swift */; };
+		40B6A33FA43604948141A852 /* Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CD049405ABD1FB3B485E8E /* Decoder.swift */; };
+		425E18DC8CB7399F6E464C84 /* ViewerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239C0F62F88DAACCE17018F7 /* ViewerSession.swift */; };
+		AA00000000000001AABBCC01 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000001AABBCC01 /* Theme.swift */; };
+		AA00000000000002AABBCC02 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000002AABBCC02 /* AppDelegate.swift */; };
+		AA00000000000003AABBCC03 /* PeariscopeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000003AABBCC03 /* PeariscopeApp.swift */; };
+		AA00000000000004AABBCC04 /* PinApprovalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000004AABBCC04 /* PinApprovalPanel.swift */; };
+		AA00000000000005AABBCC05 /* IdleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000005AABBCC05 /* IdleView.swift */; };
+		AA00000000000006AABBCC06 /* HostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000006AABBCC06 /* HostView.swift */; };
+		AA00000000000007AABBCC07 /* ViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000007AABBCC07 /* ViewerView.swift */; };
+		AA00000000000008AABBCC08 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000008AABBCC08 /* SettingsView.swift */; };
+		4616ED27C00FEF001B77A332 /* Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CD049405ABD1FB3B485E8E /* Decoder.swift */; };
+		4616F24A6490E0F8436F2BE7 /* bare-pipe.4.1.3.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C0D724BE6B8FBA62122CC7B /* bare-pipe.4.1.3.xcframework */; };
+		4CD0F4B17ADD2186034F5643 /* PeariscopeCoreIOS.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A4CA100299D8C4ECEC96DC7 /* PeariscopeCoreIOS.framework */; };
+		4DC65AEE0DBF1B7BFC926819 /* PeariscopeCoreIOS.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7A4CA100299D8C4ECEC96DC7 /* PeariscopeCoreIOS.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		4E50C4C105386FAF0877A4E0 /* LatencyTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E47FE932E6FA6BFD4EE21F /* LatencyTracker.swift */; };
+		4E5E6E9324685164F2CE708C /* bare-url.2.3.2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 6E7AD8C8F0A61672314DAD53 /* bare-url.2.3.2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		5112B8F8250948AF2BA9C35D /* BareKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; };
+		56530A7D1457A1C8F2A20774 /* bare-type.1.1.0.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3FBF18480A88932816FB97D1 /* bare-type.1.1.0.xcframework */; };
+		58767FCB92D9D12CC48A6362 /* sodium-native.5.0.10.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = BA646E01D65A2691AA2D701C /* sodium-native.5.0.10.xcframework */; };
+		593DDAA82214B6E1BA42CE25 /* Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4924AEE2A8C6712A4BD9EBEC /* Encoder.swift */; };
+		5CAC92FAB3BFDDFA7124B8F2 /* AdaptiveQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35C767646637DEA08DC6446F /* AdaptiveQuality.swift */; };
+		C10000000000000000000001 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000001 /* Theme.swift */; };
+		C10000000000000000000002 /* CrashLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000002 /* CrashLog.swift */; };
+		C10000000000000000000003 /* PeariscopeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000003 /* PeariscopeApp.swift */; };
+		C10000000000000000000004 /* ConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000004 /* ConnectView.swift */; };
+		C10000000000000000000005 /* ViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000005 /* ViewerView.swift */; };
+		C10000000000000000000006 /* ViewerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000006 /* ViewerSession.swift */; };
+		5E94B5CBB436EFE6F58C52D7 /* bare-fs.4.5.5.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B3A90468AA3EE4B4D0FDE921 /* bare-fs.4.5.5.xcframework */; };
+		6039F552E7DE88755D99EACD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7BF140261FFE032FDC911C6B /* Assets.xcassets */; };
+		6041D9555A3098F535B3150F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7BF140261FFE032FDC911C6B /* Assets.xcassets */; };
+		60732CD92FD4037C0B95E11B /* IpcClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D543CC699DC4357CFB3B1F2E /* IpcClient.swift */; };
+		60CC50A2CF19990552FEB805 /* bare-module-lexer.1.4.7.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9C90E01D0473ED1593575617 /* bare-module-lexer.1.4.7.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		6563DDD5F0D228B8692275E0 /* PeariscopeCoreMac.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B6AE5936EB39AA1C85955572 /* PeariscopeCoreMac.framework */; };
+		686722602247B7379EDAC389 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = D303B43A63B4AE994FD47893 /* SwiftProtobuf */; };
+		6C142BDFE1B53AE09CAF56E6 /* BareKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; };
+		6E9E75C239C69CF50D112323 /* bare-module-lexer.1.4.7.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9C90E01D0473ED1593575617 /* bare-module-lexer.1.4.7.xcframework */; };
+		72677AE69ABFF618997237E3 /* bare-subprocess.5.2.2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A358C2847FC906352371B44 /* bare-subprocess.5.2.2.xcframework */; };
+		79EDB506EF8E6C54D5BA1644 /* bare-buffer.3.5.0.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 95E63E3910F8C90020AB3B57 /* bare-buffer.3.5.0.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		7D831F3BACE9A3CE0AF1A60B /* bare-structured-clone.1.5.2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = EE0F7F91639DECA12F28DAF9 /* bare-structured-clone.1.5.2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		8202ED95329E69333F6F0BF0 /* bare-os.3.7.1.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F197738A7FE2A9B663040728 /* bare-os.3.7.1.xcframework */; };
+		8287B4298B70B9404AFE351E /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE474B86ED331210BFAFAAB /* NetworkManager.swift */; };
+		85AEF132F0237514BAB2900A /* Renderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93976E5C8B088344D6F8DE72 /* Renderer.swift */; };
+		87785E3EDF10F1D18EECC636 /* QRPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0656F6B7950A85657A6E82 /* QRPairing.swift */; };
+		8C891C26F33BBA48C3D0F7D8 /* udx-native.1.19.2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 32C7CB3FBB6D610B0A615EC1 /* udx-native.1.19.2.xcframework */; };
+		8F2F886EB4AC9F7C5EFB30E4 /* InputCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C151A49BDBB8ACBCA8B46F /* InputCapture.swift */; };
+		9263F388CC9D034CA5351C18 /* bare-subprocess.5.2.2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 6A358C2847FC906352371B44 /* bare-subprocess.5.2.2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		9611D0DC3435043724529D06 /* ReconnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9896E1D1D375E80807DF0E2 /* ReconnectionManager.swift */; };
+		9C25379D57DC46F3B7644A75 /* FramePacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2040C55CAA5BDEC6F5254620 /* FramePacer.swift */; };
+		9EAD28F1B7050CA56B09DA28 /* HostSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54B5A09229FC6B38DB30C0A7 /* HostSession.swift */; };
+		A663EA53A686BA0B7C13ACD0 /* H265Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D3B8D7AC241B607E4553CF /* H265Encoder.swift */; };
+		A66B683067EF59C059D1E25B /* ClipboardSharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68CE45368BF3187EF3435346 /* ClipboardSharing.swift */; };
+		AA6B0B099A73952B6E971B45 /* bare-os.3.7.1.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F197738A7FE2A9B663040728 /* bare-os.3.7.1.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AEE475D25AE9F20E205ECE65 /* BareKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; };
+		B47B62390B4D8E06B685BAAC /* InputProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A70D2AE063102E8C714B0B7 /* InputProtocol.swift */; };
+		BCCF7095626E6F708AB4FFDC /* ScreenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD3633E5008FB9954F6D424 /* ScreenCapture.swift */; };
+		C210911E22507AC508F27060 /* bare-type.1.1.0.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3FBF18480A88932816FB97D1 /* bare-type.1.1.0.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		CC48A26B2A2DA15EF7C9C2D8 /* bare-pipe.4.1.3.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0C0D724BE6B8FBA62122CC7B /* bare-pipe.4.1.3.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		CE496DE81491C28AC2A32843 /* InputInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A25FD64EF29C72A06DAC848 /* InputInjector.swift */; };
+		D1FD37171C292841FE9FCFD4 /* InputProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A70D2AE063102E8C714B0B7 /* InputProtocol.swift */; };
+		D62F536E3BA906DFC76E2B19 /* sodium-native.5.0.10.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = BA646E01D65A2691AA2D701C /* sodium-native.5.0.10.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D980D1D0C25AFE9D03F21CC3 /* messages.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F5B61172BA81C1310B1B2D6 /* messages.pb.swift */; };
+		DA3AEDDE2AFF5D59E8BF7D65 /* ReconnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9896E1D1D375E80807DF0E2 /* ReconnectionManager.swift */; };
+		DCD9EEE0C1DC2AD2F47AD77E /* BareKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E491269E8BE61068A79C9532 /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CE3DD122B6624C2A2D4C9C /* KeyManager.swift */; };
+		E63FB92D23DF7F7271CFBFA7 /* BareKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; };
+		E85CE95D4E560F3FC55DBE06 /* BareWorkletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFCE9803E1F196231F98D08 /* BareWorkletBridge.swift */; };
+		EABFE5CB51D00E3BCA4B5123 /* QRPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0656F6B7950A85657A6E82 /* QRPairing.swift */; };
+		EACABE827D36F74CD68A2C6B /* ClipboardSharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68CE45368BF3187EF3435346 /* ClipboardSharing.swift */; };
+		EF474BA9BE92736F96C74054 /* PearProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DC2119397B169ACEE7CFD9 /* PearProcess.swift */; };
+		F734536F41C8703A05255E0C /* BareKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		FA00000000000001SEC00001 /* PeerFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB00000000000001SEC00001 /* PeerFingerprint.swift */; };
+		FA00000000000002SEC00002 /* PeerFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB00000000000001SEC00001 /* PeerFingerprint.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C20ADADC3FDDC7349B077349 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4A1868E41A9495BA9093E3FD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0BCE8FE6D3208937077917DC;
+			remoteInfo = PeariscopeCoreMac;
+		};
+		FF9F1CC5CDF06A3FC47B1F47 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4A1868E41A9495BA9093E3FD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 68D8079BD2ACD4343490AA28;
+			remoteInfo = PeariscopeCoreIOS;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		89ABA2EA9145433501551283 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				4DC65AEE0DBF1B7BFC926819 /* PeariscopeCoreIOS.framework in Embed Frameworks */,
+				F734536F41C8703A05255E0C /* BareKit.xcframework in Embed Frameworks */,
+				79EDB506EF8E6C54D5BA1644 /* bare-buffer.3.5.0.xcframework in Embed Frameworks */,
+				23BCAB013858FD69D5AEDDD8 /* bare-fs.4.5.5.xcframework in Embed Frameworks */,
+				60CC50A2CF19990552FEB805 /* bare-module-lexer.1.4.7.xcframework in Embed Frameworks */,
+				AA6B0B099A73952B6E971B45 /* bare-os.3.7.1.xcframework in Embed Frameworks */,
+				CC48A26B2A2DA15EF7C9C2D8 /* bare-pipe.4.1.3.xcframework in Embed Frameworks */,
+				7D831F3BACE9A3CE0AF1A60B /* bare-structured-clone.1.5.2.xcframework in Embed Frameworks */,
+				9263F388CC9D034CA5351C18 /* bare-subprocess.5.2.2.xcframework in Embed Frameworks */,
+				C210911E22507AC508F27060 /* bare-type.1.1.0.xcframework in Embed Frameworks */,
+				4E5E6E9324685164F2CE708C /* bare-url.2.3.2.xcframework in Embed Frameworks */,
+				D62F536E3BA906DFC76E2B19 /* sodium-native.5.0.10.xcframework in Embed Frameworks */,
+				167359E8DA9C1673300CD49A /* udx-native.1.19.2.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EEA11C352725487426C82015 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				0AA8C01F80DD363ED8634AC1 /* PeariscopeCoreMac.framework in Embed Frameworks */,
+				DCD9EEE0C1DC2AD2F47AD77E /* BareKit.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0C0D724BE6B8FBA62122CC7B /* bare-pipe.4.1.3.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-pipe.4.1.3.xcframework"; path = "Frameworks/bare-pipe.4.1.3.xcframework"; sourceTree = "<group>"; };
+		1208DE51BF0CE8533F87790B /* BareKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = BareKit.xcframework; path = Frameworks/BareKit.xcframework; sourceTree = "<group>"; };
+		1A25FD64EF29C72A06DAC848 /* InputInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputInjector.swift; sourceTree = "<group>"; };
+		2040C55CAA5BDEC6F5254620 /* FramePacer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePacer.swift; sourceTree = "<group>"; };
+		239C0F62F88DAACCE17018F7 /* ViewerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerSession.swift; sourceTree = "<group>"; };
+		32C7CB3FBB6D610B0A615EC1 /* udx-native.1.19.2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "udx-native.1.19.2.xcframework"; path = "Frameworks/udx-native.1.19.2.xcframework"; sourceTree = "<group>"; };
+		35C767646637DEA08DC6446F /* AdaptiveQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveQuality.swift; sourceTree = "<group>"; };
+		38CE3DD122B6624C2A2D4C9C /* KeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyManager.swift; sourceTree = "<group>"; };
+		3AFCE9803E1F196231F98D08 /* BareWorkletBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BareWorkletBridge.swift; sourceTree = "<group>"; };
+		3FBF18480A88932816FB97D1 /* bare-type.1.1.0.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-type.1.1.0.xcframework"; path = "Frameworks/bare-type.1.1.0.xcframework"; sourceTree = "<group>"; };
+		BB00000000000001AABBCC01 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		BB00000000000002AABBCC02 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		BB00000000000003AABBCC03 /* PeariscopeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeariscopeApp.swift; sourceTree = "<group>"; };
+		BB00000000000004AABBCC04 /* PinApprovalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinApprovalPanel.swift; sourceTree = "<group>"; };
+		BB00000000000005AABBCC05 /* IdleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleView.swift; sourceTree = "<group>"; };
+		BB00000000000006AABBCC06 /* HostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostView.swift; sourceTree = "<group>"; };
+		BB00000000000007AABBCC07 /* ViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerView.swift; sourceTree = "<group>"; };
+		BB00000000000008AABBCC08 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		4924AEE2A8C6712A4BD9EBEC /* Encoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Encoder.swift; sourceTree = "<group>"; };
+		4CD3633E5008FB9954F6D424 /* ScreenCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCapture.swift; sourceTree = "<group>"; };
+		53DD463F9C4B6994FB149363 /* PeariscopeIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PeariscopeIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		54B5A09229FC6B38DB30C0A7 /* HostSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSession.swift; sourceTree = "<group>"; };
+		68CE45368BF3187EF3435346 /* ClipboardSharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardSharing.swift; sourceTree = "<group>"; };
+		6A358C2847FC906352371B44 /* bare-subprocess.5.2.2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-subprocess.5.2.2.xcframework"; path = "Frameworks/bare-subprocess.5.2.2.xcframework"; sourceTree = "<group>"; };
+		6E7AD8C8F0A61672314DAD53 /* bare-url.2.3.2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-url.2.3.2.xcframework"; path = "Frameworks/bare-url.2.3.2.xcframework"; sourceTree = "<group>"; };
+		6F5B61172BA81C1310B1B2D6 /* messages.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = messages.pb.swift; sourceTree = "<group>"; };
+		7A4CA100299D8C4ECEC96DC7 /* PeariscopeCoreIOS.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = PeariscopeCoreIOS.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		7BF140261FFE032FDC911C6B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8A70D2AE063102E8C714B0B7 /* InputProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputProtocol.swift; sourceTree = "<group>"; };
+		91D3B8D7AC241B607E4553CF /* H265Encoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H265Encoder.swift; sourceTree = "<group>"; };
+		93976E5C8B088344D6F8DE72 /* Renderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Renderer.swift; sourceTree = "<group>"; };
+		95E63E3910F8C90020AB3B57 /* bare-buffer.3.5.0.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-buffer.3.5.0.xcframework"; path = "Frameworks/bare-buffer.3.5.0.xcframework"; sourceTree = "<group>"; };
+		9C90E01D0473ED1593575617 /* bare-module-lexer.1.4.7.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-module-lexer.1.4.7.xcframework"; path = "Frameworks/bare-module-lexer.1.4.7.xcframework"; sourceTree = "<group>"; };
+		A9896E1D1D375E80807DF0E2 /* ReconnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectionManager.swift; sourceTree = "<group>"; };
+		B3A90468AA3EE4B4D0FDE921 /* bare-fs.4.5.5.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-fs.4.5.5.xcframework"; path = "Frameworks/bare-fs.4.5.5.xcframework"; sourceTree = "<group>"; };
+		B5C151A49BDBB8ACBCA8B46F /* InputCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCapture.swift; sourceTree = "<group>"; };
+		B6AE5936EB39AA1C85955572 /* PeariscopeCoreMac.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = PeariscopeCoreMac.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA646E01D65A2691AA2D701C /* sodium-native.5.0.10.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "sodium-native.5.0.10.xcframework"; path = "Frameworks/sodium-native.5.0.10.xcframework"; sourceTree = "<group>"; };
+		BFE474B86ED331210BFAFAAB /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
+		C20000000000000000000001 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		C20000000000000000000002 /* CrashLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLog.swift; sourceTree = "<group>"; };
+		C20000000000000000000003 /* PeariscopeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeariscopeApp.swift; sourceTree = "<group>"; };
+		C20000000000000000000004 /* ConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectView.swift; sourceTree = "<group>"; };
+		C20000000000000000000005 /* ViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerView.swift; sourceTree = "<group>"; };
+		C20000000000000000000006 /* ViewerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerSession.swift; sourceTree = "<group>"; };
+		D4DC2119397B169ACEE7CFD9 /* PearProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PearProcess.swift; sourceTree = "<group>"; };
+		D543CC699DC4357CFB3B1F2E /* IpcClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IpcClient.swift; sourceTree = "<group>"; };
+		D7E47FE932E6FA6BFD4EE21F /* LatencyTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyTracker.swift; sourceTree = "<group>"; };
+		E5CD049405ABD1FB3B485E8E /* Decoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Decoder.swift; sourceTree = "<group>"; };
+		EE0F7F91639DECA12F28DAF9 /* bare-structured-clone.1.5.2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-structured-clone.1.5.2.xcframework"; path = "Frameworks/bare-structured-clone.1.5.2.xcframework"; sourceTree = "<group>"; };
+		F197738A7FE2A9B663040728 /* bare-os.3.7.1.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-os.3.7.1.xcframework"; path = "Frameworks/bare-os.3.7.1.xcframework"; sourceTree = "<group>"; };
+		F80B03F27952F62AE6C74792 /* H265Decoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H265Decoder.swift; sourceTree = "<group>"; };
+		F8793959EA6047FB4596D592 /* PeariscopeMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PeariscopeMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FB00000000000001SEC00001 /* PeerFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerFingerprint.swift; sourceTree = "<group>"; };
+		FF0656F6B7950A85657A6E82 /* QRPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRPairing.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		30D48A41D49EED3E596FEFB2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4CD0F4B17ADD2186034F5643 /* PeariscopeCoreIOS.framework in Frameworks */,
+				6C142BDFE1B53AE09CAF56E6 /* BareKit.xcframework in Frameworks */,
+				23DA3993D95FFF6AA3CE43BA /* bare-buffer.3.5.0.xcframework in Frameworks */,
+				5E94B5CBB436EFE6F58C52D7 /* bare-fs.4.5.5.xcframework in Frameworks */,
+				6E9E75C239C69CF50D112323 /* bare-module-lexer.1.4.7.xcframework in Frameworks */,
+				8202ED95329E69333F6F0BF0 /* bare-os.3.7.1.xcframework in Frameworks */,
+				4616F24A6490E0F8436F2BE7 /* bare-pipe.4.1.3.xcframework in Frameworks */,
+				18132A3FF309F07517CFBDB7 /* bare-structured-clone.1.5.2.xcframework in Frameworks */,
+				72677AE69ABFF618997237E3 /* bare-subprocess.5.2.2.xcframework in Frameworks */,
+				56530A7D1457A1C8F2A20774 /* bare-type.1.1.0.xcframework in Frameworks */,
+				011CDC44211307A1DE57A76E /* bare-url.2.3.2.xcframework in Frameworks */,
+				58767FCB92D9D12CC48A6362 /* sodium-native.5.0.10.xcframework in Frameworks */,
+				8C891C26F33BBA48C3D0F7D8 /* udx-native.1.19.2.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8D15449D8F5A922AA66C14F7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				08893176521A9192BE4F9377 /* SwiftProtobuf in Frameworks */,
+				E63FB92D23DF7F7271CFBFA7 /* BareKit.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9CF6F4BF866403FA02D1CC1A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6563DDD5F0D228B8692275E0 /* PeariscopeCoreMac.framework in Frameworks */,
+				AEE475D25AE9F20E205ECE65 /* BareKit.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DF219F4AF1353210DA4D77A6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				686722602247B7379EDAC389 /* SwiftProtobuf in Frameworks */,
+				5112B8F8250948AF2BA9C35D /* BareKit.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		00D546A202B59A851ED9613B /* Clipboard */ = {
+			isa = PBXGroup;
+			children = (
+				68CE45368BF3187EF3435346 /* ClipboardSharing.swift */,
+			);
+			path = Clipboard;
+			sourceTree = "<group>";
+		};
+		05B8D6229CB5D8EC05F5F5C8 /* ViewerMode */ = {
+			isa = PBXGroup;
+			children = (
+				B5C151A49BDBB8ACBCA8B46F /* InputCapture.swift */,
+				239C0F62F88DAACCE17018F7 /* ViewerSession.swift */,
+			);
+			path = ViewerMode;
+			sourceTree = "<group>";
+		};
+		0CFB6B4EEB59B900141553C1 /* Input */ = {
+			isa = PBXGroup;
+			children = (
+				8A70D2AE063102E8C714B0B7 /* InputProtocol.swift */,
+			);
+			path = Input;
+			sourceTree = "<group>";
+		};
+		17216104DA5EF557EE15CCC6 /* HostMode */ = {
+			isa = PBXGroup;
+			children = (
+				4924AEE2A8C6712A4BD9EBEC /* Encoder.swift */,
+				91D3B8D7AC241B607E4553CF /* H265Encoder.swift */,
+				54B5A09229FC6B38DB30C0A7 /* HostSession.swift */,
+				1A25FD64EF29C72A06DAC848 /* InputInjector.swift */,
+				4CD3633E5008FB9954F6D424 /* ScreenCapture.swift */,
+			);
+			path = HostMode;
+			sourceTree = "<group>";
+		};
+		1855A3A9A10B6ABA8D037F96 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				7BF140261FFE032FDC911C6B /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		18CFA94FE2E60FFEA9D79A08 /* Viewer */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Viewer;
+			sourceTree = "<group>";
+		};
+		25C0D8F94C928809C31E1844 /* PeariscopeCore */ = {
+			isa = PBXGroup;
+			children = (
+				B6DC569AFEE4D4454821DEF2 /* Auth */,
+				00D546A202B59A851ED9613B /* Clipboard */,
+				0CFB6B4EEB59B900141553C1 /* Input */,
+				4D5BE970DA11B2B8023F08C5 /* Models */,
+				E70561A3920040E53B271922 /* Networking */,
+				FC00000000000001SEC00001 /* Utilities */,
+				FD603F98B306EA648B77144B /* Video */,
+			);
+			name = PeariscopeCore;
+			path = Sources/PeariscopeCore;
+			sourceTree = "<group>";
+		};
+		FC00000000000001SEC00001 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				FB00000000000001SEC00001 /* PeerFingerprint.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		389AD187C29240CDC0C20A89 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7A4CA100299D8C4ECEC96DC7 /* PeariscopeCoreIOS.framework */,
+				B6AE5936EB39AA1C85955572 /* PeariscopeCoreMac.framework */,
+				53DD463F9C4B6994FB149363 /* PeariscopeIOS.app */,
+				F8793959EA6047FB4596D592 /* PeariscopeMac.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4D5BE970DA11B2B8023F08C5 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				6F5B61172BA81C1310B1B2D6 /* messages.pb.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		7A7E6E12C158EF12AC84A8C4 = {
+			isa = PBXGroup;
+			children = (
+				25C0D8F94C928809C31E1844 /* PeariscopeCore */,
+				F014B5FC146061FA2BE69506 /* PeariscopeIOS */,
+				F80D4F640EA3A4C7B5A5C738 /* PeariscopeMac */,
+				1855A3A9A10B6ABA8D037F96 /* Resources */,
+				C7E77DDB6B19270AD2A3FA33 /* Frameworks */,
+				389AD187C29240CDC0C20A89 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B6DC569AFEE4D4454821DEF2 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				38CE3DD122B6624C2A2D4C9C /* KeyManager.swift */,
+				FF0656F6B7950A85657A6E82 /* QRPairing.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		C7E77DDB6B19270AD2A3FA33 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				95E63E3910F8C90020AB3B57 /* bare-buffer.3.5.0.xcframework */,
+				B3A90468AA3EE4B4D0FDE921 /* bare-fs.4.5.5.xcframework */,
+				9C90E01D0473ED1593575617 /* bare-module-lexer.1.4.7.xcframework */,
+				F197738A7FE2A9B663040728 /* bare-os.3.7.1.xcframework */,
+				0C0D724BE6B8FBA62122CC7B /* bare-pipe.4.1.3.xcframework */,
+				EE0F7F91639DECA12F28DAF9 /* bare-structured-clone.1.5.2.xcframework */,
+				6A358C2847FC906352371B44 /* bare-subprocess.5.2.2.xcframework */,
+				3FBF18480A88932816FB97D1 /* bare-type.1.1.0.xcframework */,
+				6E7AD8C8F0A61672314DAD53 /* bare-url.2.3.2.xcframework */,
+				1208DE51BF0CE8533F87790B /* BareKit.xcframework */,
+				BA646E01D65A2691AA2D701C /* sodium-native.5.0.10.xcframework */,
+				32C7CB3FBB6D610B0A615EC1 /* udx-native.1.19.2.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		E0C73C748202DB05CF853A1C /* Pairing */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Pairing;
+			sourceTree = "<group>";
+		};
+		E70561A3920040E53B271922 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				3AFCE9803E1F196231F98D08 /* BareWorkletBridge.swift */,
+				D543CC699DC4357CFB3B1F2E /* IpcClient.swift */,
+				BFE474B86ED331210BFAFAAB /* NetworkManager.swift */,
+				D4DC2119397B169ACEE7CFD9 /* PearProcess.swift */,
+				A9896E1D1D375E80807DF0E2 /* ReconnectionManager.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		F014B5FC146061FA2BE69506 /* PeariscopeIOS */ = {
+			isa = PBXGroup;
+			children = (
+				C20000000000000000000001 /* Theme.swift */,
+				C20000000000000000000002 /* CrashLog.swift */,
+				C20000000000000000000003 /* PeariscopeApp.swift */,
+				C20000000000000000000004 /* ConnectView.swift */,
+				C20000000000000000000005 /* ViewerView.swift */,
+				C20000000000000000000006 /* ViewerSession.swift */,
+				E0C73C748202DB05CF853A1C /* Pairing */,
+				18CFA94FE2E60FFEA9D79A08 /* Viewer */,
+			);
+			name = PeariscopeIOS;
+			path = Sources/PeariscopeIOS;
+			sourceTree = "<group>";
+		};
+		F80D4F640EA3A4C7B5A5C738 /* PeariscopeMac */ = {
+			isa = PBXGroup;
+			children = (
+				BB00000000000001AABBCC01 /* Theme.swift */,
+				BB00000000000002AABBCC02 /* AppDelegate.swift */,
+				BB00000000000003AABBCC03 /* PeariscopeApp.swift */,
+				BB00000000000004AABBCC04 /* PinApprovalPanel.swift */,
+				BB00000000000005AABBCC05 /* IdleView.swift */,
+				BB00000000000006AABBCC06 /* HostView.swift */,
+				BB00000000000007AABBCC07 /* ViewerView.swift */,
+				BB00000000000008AABBCC08 /* SettingsView.swift */,
+				17216104DA5EF557EE15CCC6 /* HostMode */,
+				05B8D6229CB5D8EC05F5F5C8 /* ViewerMode */,
+			);
+			name = PeariscopeMac;
+			path = Sources/PeariscopeMac;
+			sourceTree = "<group>";
+		};
+		FD603F98B306EA648B77144B /* Video */ = {
+			isa = PBXGroup;
+			children = (
+				35C767646637DEA08DC6446F /* AdaptiveQuality.swift */,
+				E5CD049405ABD1FB3B485E8E /* Decoder.swift */,
+				2040C55CAA5BDEC6F5254620 /* FramePacer.swift */,
+				F80B03F27952F62AE6C74792 /* H265Decoder.swift */,
+				D7E47FE932E6FA6BFD4EE21F /* LatencyTracker.swift */,
+				93976E5C8B088344D6F8DE72 /* Renderer.swift */,
+			);
+			path = Video;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0BCE8FE6D3208937077917DC /* PeariscopeCoreMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C22C655C91761A03DC5EAD00 /* Build configuration list for PBXNativeTarget "PeariscopeCoreMac" */;
+			buildPhases = (
+				75BC54B63F78C5D41CF8B1B7 /* Sources */,
+				8D15449D8F5A922AA66C14F7 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PeariscopeCoreMac;
+			packageProductDependencies = (
+				D7AB362247E63A4E20C7AC15 /* SwiftProtobuf */,
+			);
+			productName = PeariscopeCoreMac;
+			productReference = B6AE5936EB39AA1C85955572 /* PeariscopeCoreMac.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+		68D8079BD2ACD4343490AA28 /* PeariscopeCoreIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 65EC18C69291A6BAD13D5BDC /* Build configuration list for PBXNativeTarget "PeariscopeCoreIOS" */;
+			buildPhases = (
+				8743AD22B6C0F4C53FFD1AA6 /* Sources */,
+				DF219F4AF1353210DA4D77A6 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PeariscopeCoreIOS;
+			packageProductDependencies = (
+				D303B43A63B4AE994FD47893 /* SwiftProtobuf */,
+			);
+			productName = PeariscopeCoreIOS;
+			productReference = 7A4CA100299D8C4ECEC96DC7 /* PeariscopeCoreIOS.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+		7BDAA7DB2BB7694A9E711C58 /* PeariscopeMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F4F4AFB418261BA622C96B45 /* Build configuration list for PBXNativeTarget "PeariscopeMac" */;
+			buildPhases = (
+				6EAE4337A3EC86B4DFC2ADE4 /* Sources */,
+				697EA8B10B62BDAB17B30E33 /* Resources */,
+				9CF6F4BF866403FA02D1CC1A /* Frameworks */,
+				EEA11C352725487426C82015 /* Embed Frameworks */,
+				1FF6A2F38E83EE7146525787 /* Bundle Pear Runtime */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AED213B967835290653391A3 /* PBXTargetDependency */,
+			);
+			name = PeariscopeMac;
+			packageProductDependencies = (
+			);
+			productName = PeariscopeMac;
+			productReference = F8793959EA6047FB4596D592 /* PeariscopeMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8A58EA9D5284A20A67DBE626 /* PeariscopeIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2FC58D6EF61DC21BE21E459E /* Build configuration list for PBXNativeTarget "PeariscopeIOS" */;
+			buildPhases = (
+				2F881DBA01C3A7896DD3CCE1 /* Sources */,
+				D94D6E36E4674D22198F8FC5 /* Resources */,
+				30D48A41D49EED3E596FEFB2 /* Frameworks */,
+				89ABA2EA9145433501551283 /* Embed Frameworks */,
+				B5EB8D512AD6C1C8A793C533 /* Bundle Pear Runtime for iOS */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1B50CD3E4B48F9B46B18461C /* PBXTargetDependency */,
+			);
+			name = PeariscopeIOS;
+			packageProductDependencies = (
+			);
+			productName = PeariscopeIOS;
+			productReference = 53DD463F9C4B6994FB149363 /* PeariscopeIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4A1868E41A9495BA9093E3FD /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					0BCE8FE6D3208937077917DC = {
+						DevelopmentTeam = H87Y6XJ9S2;
+						ProvisioningStyle = Automatic;
+					};
+					68D8079BD2ACD4343490AA28 = {
+						DevelopmentTeam = H87Y6XJ9S2;
+						ProvisioningStyle = Automatic;
+					};
+					7BDAA7DB2BB7694A9E711C58 = {
+						DevelopmentTeam = H87Y6XJ9S2;
+						ProvisioningStyle = Automatic;
+					};
+					8A58EA9D5284A20A67DBE626 = {
+						DevelopmentTeam = H87Y6XJ9S2;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = B32CF92BC4660463B4EC7DD8 /* Build configuration list for PBXProject "Peariscope" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 7A7E6E12C158EF12AC84A8C4;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C9D07BDDF1E5524B4EDFCFD1 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				68D8079BD2ACD4343490AA28 /* PeariscopeCoreIOS */,
+				0BCE8FE6D3208937077917DC /* PeariscopeCoreMac */,
+				8A58EA9D5284A20A67DBE626 /* PeariscopeIOS */,
+				7BDAA7DB2BB7694A9E711C58 /* PeariscopeMac */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		697EA8B10B62BDAB17B30E33 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6039F552E7DE88755D99EACD /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D94D6E36E4674D22198F8FC5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6041D9555A3098F535B3150F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		1FF6A2F38E83EE7146525787 /* Bundle Pear Runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle Pear Runtime";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for macOS\ncd \"$PEAR_SRC\"\nPATH=\"/Users/bcap/.bun/bin:/Users/bcap/.local/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/opt/homebrew/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/Users/bcap/Library/Application Support/pear/bin:/Users/bcap/.cargo/bin:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet.bundle\" ]; then\n  npx bare-pack --preset darwin --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1 || true\nfi\ncp \"$PEAR_SRC/worklet.bundle\" \"$PEAR_DEST/\" 2>/dev/null || true\n\n# Copy macOS native addon frameworks\nif [ -d \"$PEAR_SRC/addons-darwin\" ]; then\n  for fw in \"$PEAR_SRC/addons-darwin\"/*.framework; do\n    if [ -d \"$fw\" ]; then\n      cp -R \"$fw\" \"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Frameworks/\"\n    fi\n  done\nfi\n\n# Also copy legacy files for Node.js fallback\ncp \"$PEAR_SRC/index.js\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp \"$PEAR_SRC/package.json\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp -R \"$PEAR_SRC/lib\" \"$PEAR_DEST/lib\" 2>/dev/null || true\nif [ -d \"$PEAR_SRC/node_modules\" ]; then\n  cp -R \"$PEAR_SRC/node_modules\" \"$PEAR_DEST/node_modules\"\nfi\nPROTO_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/protocol\"\nmkdir -p \"$PROTO_DEST\"\ncp \"${SRCROOT}/../protocol/messages.proto\" \"$PROTO_DEST/\"\nNODE_SRC=$(which node)\nNODE_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/node\"\ncp \"$NODE_SRC\" \"$NODE_DEST\" 2>/dev/null || true\nchmod +x \"$NODE_DEST\" 2>/dev/null || true\n";
+		};
+		B5EB8D512AD6C1C8A793C533 /* Bundle Pear Runtime for iOS */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle Pear Runtime for iOS";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for iOS\ncd \"$PEAR_SRC\"\nPATH=\"/Users/bcap/.bun/bin:/Users/bcap/.local/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/opt/homebrew/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/Users/bcap/Library/Application Support/pear/bin:/Users/bcap/.cargo/bin:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet-ios.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet-ios.bundle\" ]; then\n  npx bare-pack --preset ios --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1 || true\nfi\ncp \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_DEST/worklet.bundle\" 2>/dev/null || true\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2F881DBA01C3A7896DD3CCE1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C10000000000000000000001 /* Theme.swift in Sources */,
+				C10000000000000000000002 /* CrashLog.swift in Sources */,
+				C10000000000000000000003 /* PeariscopeApp.swift in Sources */,
+				C10000000000000000000004 /* ConnectView.swift in Sources */,
+				C10000000000000000000005 /* ViewerView.swift in Sources */,
+				C10000000000000000000006 /* ViewerSession.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6EAE4337A3EC86B4DFC2ADE4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00000000000001AABBCC01 /* Theme.swift in Sources */,
+				AA00000000000002AABBCC02 /* AppDelegate.swift in Sources */,
+				AA00000000000003AABBCC03 /* PeariscopeApp.swift in Sources */,
+				AA00000000000004AABBCC04 /* PinApprovalPanel.swift in Sources */,
+				AA00000000000005AABBCC05 /* IdleView.swift in Sources */,
+				AA00000000000006AABBCC06 /* HostView.swift in Sources */,
+				AA00000000000007AABBCC07 /* ViewerView.swift in Sources */,
+				AA00000000000008AABBCC08 /* SettingsView.swift in Sources */,
+				593DDAA82214B6E1BA42CE25 /* Encoder.swift in Sources */,
+				A663EA53A686BA0B7C13ACD0 /* H265Encoder.swift in Sources */,
+				9EAD28F1B7050CA56B09DA28 /* HostSession.swift in Sources */,
+				8F2F886EB4AC9F7C5EFB30E4 /* InputCapture.swift in Sources */,
+				CE496DE81491C28AC2A32843 /* InputInjector.swift in Sources */,
+				BCCF7095626E6F708AB4FFDC /* ScreenCapture.swift in Sources */,
+				425E18DC8CB7399F6E464C84 /* ViewerSession.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		75BC54B63F78C5D41CF8B1B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				134E2E63448636B22ECD2B7B /* AdaptiveQuality.swift in Sources */,
+				3441D25C16305A89FC8547AE /* BareWorkletBridge.swift in Sources */,
+				A66B683067EF59C059D1E25B /* ClipboardSharing.swift in Sources */,
+				4616ED27C00FEF001B77A332 /* Decoder.swift in Sources */,
+				0ABDCEC018C1F7B637958765 /* FramePacer.swift in Sources */,
+				22CDC9F51D7FF620F1C75921 /* H265Decoder.swift in Sources */,
+				D1FD37171C292841FE9FCFD4 /* InputProtocol.swift in Sources */,
+				60732CD92FD4037C0B95E11B /* IpcClient.swift in Sources */,
+				E491269E8BE61068A79C9532 /* KeyManager.swift in Sources */,
+				4E50C4C105386FAF0877A4E0 /* LatencyTracker.swift in Sources */,
+				8287B4298B70B9404AFE351E /* NetworkManager.swift in Sources */,
+				308A15C33E2882DEA65F25C4 /* PearProcess.swift in Sources */,
+				87785E3EDF10F1D18EECC636 /* QRPairing.swift in Sources */,
+				DA3AEDDE2AFF5D59E8BF7D65 /* ReconnectionManager.swift in Sources */,
+				0419F0D1BA61ED89749015AB /* Renderer.swift in Sources */,
+				0BDF3801E9D6A3AEB48346C1 /* messages.pb.swift in Sources */,
+				FA00000000000001SEC00001 /* PeerFingerprint.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8743AD22B6C0F4C53FFD1AA6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5CAC92FAB3BFDDFA7124B8F2 /* AdaptiveQuality.swift in Sources */,
+				E85CE95D4E560F3FC55DBE06 /* BareWorkletBridge.swift in Sources */,
+				EACABE827D36F74CD68A2C6B /* ClipboardSharing.swift in Sources */,
+				40B6A33FA43604948141A852 /* Decoder.swift in Sources */,
+				9C25379D57DC46F3B7644A75 /* FramePacer.swift in Sources */,
+				2C0A65932699F3ED8A9DE056 /* H265Decoder.swift in Sources */,
+				B47B62390B4D8E06B685BAAC /* InputProtocol.swift in Sources */,
+				036299F2C96821547627BD58 /* IpcClient.swift in Sources */,
+				2352BA077F86414EBD876708 /* KeyManager.swift in Sources */,
+				35FBE8F3E33D212715C122E7 /* LatencyTracker.swift in Sources */,
+				0CB5FF235D9D6C15760100BE /* NetworkManager.swift in Sources */,
+				EF474BA9BE92736F96C74054 /* PearProcess.swift in Sources */,
+				EABFE5CB51D00E3BCA4B5123 /* QRPairing.swift in Sources */,
+				9611D0DC3435043724529D06 /* ReconnectionManager.swift in Sources */,
+				85AEF132F0237514BAB2900A /* Renderer.swift in Sources */,
+				D980D1D0C25AFE9D03F21CC3 /* messages.pb.swift in Sources */,
+				FA00000000000002SEC00002 /* PeerFingerprint.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1B50CD3E4B48F9B46B18461C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 68D8079BD2ACD4343490AA28 /* PeariscopeCoreIOS */;
+			targetProxy = FF9F1CC5CDF06A3FC47B1F47 /* PBXContainerItemProxy */;
+		};
+		AED213B967835290653391A3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0BCE8FE6D3208937077917DC /* PeariscopeCoreMac */;
+			targetProxy = C20ADADC3FDDC7349B077349 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		11C075E82D6596D69992A43A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = H87Y6XJ9S2;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		29E8969421FD43628779AF3B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.peariscope.core;
+				PRODUCT_NAME = PeariscopeCore;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		452F483F2EDCC4C223D7BF58 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.peariscope.core;
+				PRODUCT_NAME = PeariscopeCore;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		5502B2A05A0F4389D9B6AE0C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.peariscope.core;
+				PRODUCT_NAME = PeariscopeCore;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		6D09DEE0F0B61F11659D86AB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.peariscope.core;
+				PRODUCT_NAME = PeariscopeCore;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		6F7088034D266F31515063FC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				INFOPLIST_FILE = "Resources/IOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.peariscope.ios;
+				PRODUCT_NAME = Peariscope;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		82C6B7A48E28F7ED3EC94BDA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				INFOPLIST_FILE = "Resources/MacOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.peariscope.mac;
+				PRODUCT_NAME = Peariscope;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		AB8D5A9979E0EE73986E8CB5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = H87Y6XJ9S2;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		B8A4CAB54400924175A5D873 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				INFOPLIST_FILE = "Resources/IOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.peariscope.ios;
+				PRODUCT_NAME = Peariscope;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CCD973903256E92B3A455115 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				INFOPLIST_FILE = "Resources/MacOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.peariscope.mac;
+				PRODUCT_NAME = Peariscope;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2FC58D6EF61DC21BE21E459E /* Build configuration list for PBXNativeTarget "PeariscopeIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B8A4CAB54400924175A5D873 /* Debug */,
+				6F7088034D266F31515063FC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		65EC18C69291A6BAD13D5BDC /* Build configuration list for PBXNativeTarget "PeariscopeCoreIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				29E8969421FD43628779AF3B /* Debug */,
+				5502B2A05A0F4389D9B6AE0C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B32CF92BC4660463B4EC7DD8 /* Build configuration list for PBXProject "Peariscope" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AB8D5A9979E0EE73986E8CB5 /* Debug */,
+				11C075E82D6596D69992A43A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C22C655C91761A03DC5EAD00 /* Build configuration list for PBXNativeTarget "PeariscopeCoreMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				452F483F2EDCC4C223D7BF58 /* Debug */,
+				6D09DEE0F0B61F11659D86AB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F4F4AFB418261BA622C96B45 /* Build configuration list for PBXNativeTarget "PeariscopeMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CCD973903256E92B3A455115 /* Debug */,
+				82C6B7A48E28F7ED3EC94BDA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C9D07BDDF1E5524B4EDFCFD1 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-protobuf.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.25.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D303B43A63B4AE994FD47893 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9D07BDDF1E5524B4EDFCFD1 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+		D7AB362247E63A4E20C7AC15 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9D07BDDF1E5524B4EDFCFD1 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 4A1868E41A9495BA9093E3FD /* Project object */;
+}
