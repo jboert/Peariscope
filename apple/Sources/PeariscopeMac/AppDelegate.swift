@@ -1,158 +1,153 @@
 import SwiftUI
 import AppKit
+import Combine
 import PeariscopeCore
-
-// MARK: - App Lifecycle
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem?
-    weak var hostSession: HostSession?
-    weak var networkManager: NetworkManager?
+    private var statusCancellables = Set<AnyCancellable>()
+    private var viewerWindow: NSWindow?
+
+    let networkManager = NetworkManager()
+    let hostSession: HostSession
+
+    override init() {
+        let nm = networkManager
+        hostSession = HostSession(networkManager: nm)
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Ignore SIGPIPE — writing to a broken BareKit IPC pipe sends SIGPIPE,
-        // which kills the app instantly. Ignoring lets write() return an error.
         signal(SIGPIPE, SIG_IGN)
-        NSLog("[app] applicationDidFinishLaunching")
+        NSLog("[app] applicationDidFinishLaunching — menu bar mode")
 
-        let startMinimized = UserDefaults.standard.bool(forKey: "peariscope.startMinimized")
-        if startMinimized {
-            // Hide all windows — app lives in menu bar tray until opened
-            // Delay to let SwiftUI finish creating windows first
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                for window in NSApplication.shared.windows {
-                    window.close()
-                }
-            }
-        } else {
-            NSApplication.shared.activate(ignoringOtherApps: true)
+        // Update the menu bar icon to show the Peariscope logo with status dot
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.setupStatusItemIcon()
+            self?.observeStatus()
         }
 
-        setupStatusItem()
+        startRuntime()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
 
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            showMainWindow()
-        }
-        return true
+    // MARK: - Status Item Icon
+
+    /// Find the MenuBarExtra's status item and replace its icon with our custom one
+    private func setupStatusItemIcon() {
+        updateStatusIcon(active: hostSession.isActive)
     }
 
-    // MARK: - NSStatusItem Menu Bar
-
-    private func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "display", accessibilityDescription: "Peariscope")
-        }
-        let menu = NSMenu()
-        menu.delegate = self
-        statusItem?.menu = menu
-    }
-
-    fileprivate func rebuildMenu() {
-        guard let menu = statusItem?.menu else { return }
-        menu.removeAllItems()
-
-        if let hs = hostSession {
-            if hs.isActive {
-                let peers = networkManager?.connectedPeers.count ?? 0
-                if peers > 0 {
-                    let item = NSMenuItem(title: "Sharing with \(peers) peer(s)", action: nil, keyEquivalent: "")
-                    item.isEnabled = false
-                    menu.addItem(item)
-                } else {
-                    let item = NSMenuItem(title: "Available to share", action: nil, keyEquivalent: "")
-                    item.isEnabled = false
-                    menu.addItem(item)
-                }
-                menu.addItem(NSMenuItem(title: "Stop Sharing", action: #selector(stopSharing), keyEquivalent: ""))
-
-                if let pin = hs.pendingPeerPin {
-                    menu.addItem(NSMenuItem.separator())
-                    let pinItem = NSMenuItem(title: "PIN: \(pin)", action: nil, keyEquivalent: "")
-                    pinItem.isEnabled = false
-                    menu.addItem(pinItem)
-                    menu.addItem(NSMenuItem(title: "Approve Peer", action: #selector(approvePeer), keyEquivalent: ""))
-                    menu.addItem(NSMenuItem(title: "Reject Peer", action: #selector(rejectPeer), keyEquivalent: ""))
-                }
-            } else {
-                menu.addItem(NSMenuItem(title: "Start Sharing", action: #selector(startSharing), keyEquivalent: ""))
-                menu.addItem(NSMenuItem.separator())
-                let item = NSMenuItem(title: "Not sharing", action: nil, keyEquivalent: "")
-                item.isEnabled = false
-                menu.addItem(item)
+    private func updateStatusIcon(active: Bool) {
+        // MenuBarExtra creates a status item — find it and update the icon
+        for window in NSApplication.shared.windows {
+            if let button = (window.value(forKey: "statusItem") as? NSStatusItem)?.button {
+                button.image = makeStatusIcon(active: active)
+                button.imagePosition = .imageOnly
+                return
             }
-        } else {
-            let item = NSMenuItem(title: "Loading...", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
         }
 
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Show Window", action: #selector(showWindowAction), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
+        // Fallback: search all status items in the status bar
+        // The MenuBarExtra status item button can be found via the window's content
     }
 
-    @objc private func startSharing() {
-        guard let hs = hostSession else { return }
-        Task { @MainActor in try? await hs.start() }
+    private func makeStatusIcon(active: Bool) -> NSImage {
+        let height: CGFloat = 22
+        let width: CGFloat = 24
+        let size = NSSize(width: width, height: height)
+        let image = NSImage(size: size, flipped: false) { rect in
+            if let appLogo = NSImage(named: "AppLogo") {
+                let iconRect = NSRect(x: 1, y: 1, width: height - 2, height: height - 2)
+                appLogo.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            }
+
+            // Status dot
+            let dotSize: CGFloat = 5
+            let dotRect = NSRect(
+                x: rect.maxX - dotSize - 1,
+                y: 1,
+                width: dotSize,
+                height: dotSize
+            )
+            let borderPath = NSBezierPath(ovalIn: dotRect.insetBy(dx: -1, dy: -1))
+            NSColor.white.setFill()
+            borderPath.fill()
+
+            let dotPath = NSBezierPath(ovalIn: dotRect)
+            let color = active ? NSColor(Color.pearGreen) : NSColor.systemGray
+            color.setFill()
+            dotPath.fill()
+
+            return true
+        }
+        image.isTemplate = false
+        return image
     }
 
-    @objc private func stopSharing() {
-        guard let hs = hostSession else { return }
-        Task { @MainActor in try? await hs.stop() }
+    private func observeStatus() {
+        hostSession.$isActive
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                self?.updateStatusIcon(active: isActive)
+            }
+            .store(in: &statusCancellables)
     }
 
-    @objc private func approvePeer() {
-        hostSession?.respondToPeer(accepted: true)
-    }
+    // MARK: - Viewer Window
 
-    @objc private func rejectPeer() {
-        hostSession?.respondToPeer(accepted: false)
-    }
-
-    @objc private func showWindowAction() {
-        showMainWindow()
-    }
-
-    @objc private func quitApp() {
-        NSApplication.shared.terminate(nil)
-    }
-}
-
-extension AppDelegate: NSMenuDelegate {
-    func menuWillOpen(_ menu: NSMenu) {
-        rebuildMenu()
-    }
-}
-
-/// Show the main Peariscope window, creating it if needed
-func showMainWindow() {
-    NSApplication.shared.activate(ignoringOtherApps: true)
-
-    // Try to find and show an existing window
-    for window in NSApplication.shared.windows {
-        // Skip menu bar extra windows and other non-content windows
-        if window.canBecomeMain || window.title == "Peariscope" {
-            window.makeKeyAndOrderFront(nil)
+    func openViewerWindow() {
+        if let existing = viewerWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
             NSApplication.shared.activate(ignoringOtherApps: true)
             return
         }
+
+        let viewerContent = ViewerWindowView(
+            networkManager: networkManager,
+            onClose: { [weak self] in
+                self?.viewerWindow?.close()
+                self?.viewerWindow = nil
+            }
+        )
+
+        let hostingView = NSHostingView(rootView: viewerContent)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Peariscope — Connect"
+        window.contentView = hostingView
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+
+        viewerWindow = window
     }
 
-    // No window found — use the standard macOS "New Window" action
-    // This triggers SwiftUI's WindowGroup to create a new window
-    if NSApp.responds(to: #selector(NSApplication.sendAction(_:to:from:))) {
-        NSApp.sendAction(#selector(NSResponder.newWindowForTab(_:)), to: nil, from: nil)
-        // Activate again after creating
-        DispatchQueue.main.async {
-            NSApplication.shared.activate(ignoringOtherApps: true)
+    // MARK: - Runtime
+
+    private func startRuntime() {
+        Task {
+            do {
+                try await networkManager.startRuntime()
+            } catch {
+                networkManager.lastError = "Failed to start Pear runtime: \(error.localizedDescription)"
+            }
+
+            if UserDefaults.standard.bool(forKey: "peariscope.startSharingOnStartup") && !hostSession.isActive {
+                do {
+                    try await hostSession.start()
+                } catch {
+                    networkManager.lastError = "Auto-start error: \(error.localizedDescription)"
+                }
+            }
         }
     }
 }

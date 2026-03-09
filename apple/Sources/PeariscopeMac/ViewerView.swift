@@ -58,11 +58,13 @@ struct MacSavedHost: Identifiable, Codable {
     }
 }
 
-// MARK: - Viewer
+// MARK: - Viewer Window (standalone)
 
-struct ViewerView: View {
+struct ViewerWindowView: View {
     @ObservedObject var networkManager: NetworkManager
     @StateObject private var viewerSession: ViewerSession
+    let onClose: () -> Void
+
     @State private var connectionCode = ""
     @State private var savedHosts: [MacSavedHost] = MacSavedHost.loadAll()
     @State private var renamingHost: MacSavedHost?
@@ -70,8 +72,9 @@ struct ViewerView: View {
     @State private var hoveredHostId: String?
     @State private var hostOnlineStatus: [String: Bool] = [:]
 
-    init(networkManager: NetworkManager) {
+    init(networkManager: NetworkManager, onClose: @escaping () -> Void) {
         self.networkManager = networkManager
+        self.onClose = onClose
         _viewerSession = StateObject(wrappedValue: ViewerSession(networkManager: networkManager))
     }
 
@@ -83,6 +86,7 @@ struct ViewerView: View {
                 connectView
             }
         }
+        .tint(.pearGreen)
         .alert("Rename Connection", isPresented: Binding(
             get: { renamingHost != nil },
             set: { if !$0 { renamingHost = nil } }
@@ -168,38 +172,30 @@ struct ViewerView: View {
     // MARK: - Connect Screen
 
     private var connectView: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    Image(systemName: "laptopcomputer.and.arrow.down")
-                        .font(.system(size: 18, weight: .thin))
-                        .foregroundStyle(.pearGradient)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Connect to Remote Desktop")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Enter a seed phrase or select a recent connection")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+        VStack(spacing: 0) {
+            Spacer()
+
+            VStack(spacing: 16) {
+                Image(systemName: "laptopcomputer.and.arrow.down")
+                    .font(.system(size: 32, weight: .thin))
+                    .foregroundStyle(.pearGradient)
+
+                Text("Connect to Remote Desktop")
+                    .font(.system(size: 16, weight: .semibold))
 
                 // Seed phrase input
                 HStack(spacing: 8) {
                     TextField("Enter seed phrase...", text: $connectionCode)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
                         .background(
-                            RoundedRectangle(cornerRadius: 7)
+                            RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.primary.opacity(0.04))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 7)
+                            RoundedRectangle(cornerRadius: 8)
                                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                         )
                         .onSubmit { connectToCode(connectionCode) }
@@ -208,43 +204,44 @@ struct ViewerView: View {
                         connectToCode(connectionCode)
                     } label: {
                         Image(systemName: "arrow.right")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(.white)
-                            .frame(width: 30, height: 30)
+                            .frame(width: 36, height: 36)
                             .background(connectionCode.isEmpty ? Color.gray.opacity(0.2) : Color.pearGreen)
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                     .disabled(connectionCode.isEmpty)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 40)
+            }
 
-                // Recent connections
-                if !savedHosts.isEmpty {
-                    HStack(spacing: 5) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+            // Recent connections
+            if !savedHosts.isEmpty {
+                VStack(spacing: 4) {
+                    HStack {
                         Text("RECENT")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.tertiary)
                             .tracking(0.8)
                         Spacer()
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 14)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 44)
+                    .padding(.top, 20)
 
-                    VStack(spacing: 3) {
-                        ForEach(savedHosts) { host in
-                            savedHostRow(host)
+                    ScrollView {
+                        VStack(spacing: 3) {
+                            ForEach(savedHosts) { host in
+                                savedHostRow(host)
+                            }
                         }
+                        .padding(.horizontal, 40)
                     }
-                    .padding(.horizontal, 20)
+                    .frame(maxHeight: 200)
                 }
-
-                Spacer(minLength: 12)
             }
+
+            Spacer()
         }
         .onAppear {
             savedHosts = MacSavedHost.loadAll()
@@ -275,7 +272,6 @@ struct ViewerView: View {
                         Circle()
                             .fill(hostStatusColor(host))
                             .frame(width: 6, height: 6)
-                            .shadow(color: hostStatusColor(host).opacity(0.6), radius: 2)
                     }
                     Text(hostTimeAgo(host))
                         .font(.system(size: 10))

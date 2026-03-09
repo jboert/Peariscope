@@ -25,7 +25,7 @@
     <key>NSAppleEventsUsageDescription</key>
     <string>Peariscope needs accessibility to inject remote input events.</string>
     <key>LSUIElement</key>
-    <false/>
+    <true/>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

@@ -36,6 +36,7 @@
 		AA00000000000006AABBCC06 /* HostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000006AABBCC06 /* HostView.swift */; };
 		AA00000000000007AABBCC07 /* ViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000007AABBCC07 /* ViewerView.swift */; };
 		AA00000000000008AABBCC08 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000008AABBCC08 /* SettingsView.swift */; };
+		AA00000000000009AABBCC09 /* PopoverContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000009AABBCC09 /* PopoverContentView.swift */; };
 		4616ED27C00FEF001B77A332 /* Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CD049405ABD1FB3B485E8E /* Decoder.swift */; };
 		4616F24A6490E0F8436F2BE7 /* bare-pipe.4.1.3.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C0D724BE6B8FBA62122CC7B /* bare-pipe.4.1.3.xcframework */; };
 		4CD0F4B17ADD2186034F5643 /* PeariscopeCoreIOS.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A4CA100299D8C4ECEC96DC7 /* PeariscopeCoreIOS.framework */; };
@@ -174,6 +175,7 @@
 		BB00000000000006AABBCC06 /* HostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostView.swift; sourceTree = "<group>"; };
 		BB00000000000007AABBCC07 /* ViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerView.swift; sourceTree = "<group>"; };
 		BB00000000000008AABBCC08 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		BB00000000000009AABBCC09 /* PopoverContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverContentView.swift; sourceTree = "<group>"; };
 		4924AEE2A8C6712A4BD9EBEC /* Encoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Encoder.swift; sourceTree = "<group>"; };
 		4CD3633E5008FB9954F6D424 /* ScreenCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCapture.swift; sourceTree = "<group>"; };
 		53DD463F9C4B6994FB149363 /* PeariscopeIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PeariscopeIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -444,6 +446,7 @@
 				BB00000000000006AABBCC06 /* HostView.swift */,
 				BB00000000000007AABBCC07 /* ViewerView.swift */,
 				BB00000000000008AABBCC08 /* SettingsView.swift */,
+				BB00000000000009AABBCC09 /* PopoverContentView.swift */,
 				17216104DA5EF557EE15CCC6 /* HostMode */,
 				05B8D6229CB5D8EC05F5F5C8 /* ViewerMode */,
 			);
@@ -687,6 +690,7 @@
 				AA00000000000006AABBCC06 /* HostView.swift in Sources */,
 				AA00000000000007AABBCC07 /* ViewerView.swift in Sources */,
 				AA00000000000008AABBCC08 /* SettingsView.swift in Sources */,
+				AA00000000000009AABBCC09 /* PopoverContentView.swift in Sources */,
 				593DDAA82214B6E1BA42CE25 /* Encoder.swift in Sources */,
 				A663EA53A686BA0B7C13ACD0 /* H265Encoder.swift in Sources */,
 				9EAD28F1B7050CA56B09DA28 /* HostSession.swift in Sources */,
