@@ -34,18 +34,6 @@ Everything runs over [Hyperswarm](https://github.com/holepunchto/hyperswarm) and
 
 <br>
 
-## Platforms
-
-| Platform | Role | Status |
-|:---------|:-----|:------:|
-| macOS | Host + Viewer | ✅ |
-| Windows | Host + Viewer | ✅ |
-| Linux | Host + Viewer | ✅ |
-| iOS | Viewer | ✅ |
-| Android | Host + Viewer | ✅ |
-
-<br>
-
 ## Getting started
 
 ### Hosting
