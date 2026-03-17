@@ -111,16 +111,6 @@ When a new worklet version is published to a Hyperdrive, all native apps detect 
 └─────────────────────────────────────────────────────┘
 ```
 
-### Stream Channels
-
-| Channel | Direction | Content |
-|---------|-----------|---------|
-| 0 | Host → Viewer | Video (Annex B H.264/H.265) |
-| 1 | Viewer → Host | Input events |
-| 2 | Bidirectional | Control messages (protobuf) |
-| 3 | Host → Viewer | Audio (AAC 48kHz stereo) |
-| 4 | Bidirectional | DHT node exchange |
-
 ### Connection Codes
 
 12-word [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) phrases with 132 bits of entropy. The DHT topic is derived via `blake2b-256("peariscope:" + normalized_words)` so both host and viewer resolve to the same Hyperswarm topic without a central server.
