@@ -66,6 +66,7 @@ struct ViewerWindowView: View {
     let onClose: () -> Void
     let onVideoSizeChanged: ((CGSize) -> Void)?
     let onDisconnected: (() -> Void)?
+    var onWillConnect: (() async -> Void)?
 
     @State private var connectionCode = ""
     @State private var savedHosts: [MacSavedHost] = MacSavedHost.loadAll()
@@ -75,12 +76,14 @@ struct ViewerWindowView: View {
     @State private var hostOnlineStatus: [String: Bool] = [:]
     @State private var isConnecting = false
     @State private var suggestions: [String] = []
+    @State private var probeTask: Task<Void, Never>?
 
-    init(networkManager: NetworkManager, onClose: @escaping () -> Void, onVideoSizeChanged: ((CGSize) -> Void)? = nil, onDisconnected: (() -> Void)? = nil) {
+    init(networkManager: NetworkManager, onClose: @escaping () -> Void, onVideoSizeChanged: ((CGSize) -> Void)? = nil, onDisconnected: (() -> Void)? = nil, onWillConnect: (() async -> Void)? = nil) {
         self.networkManager = networkManager
         self.onClose = onClose
         self.onVideoSizeChanged = onVideoSizeChanged
         self.onDisconnected = onDisconnected
+        self.onWillConnect = onWillConnect
         _viewerSession = StateObject(wrappedValue: ViewerSession(networkManager: networkManager))
     }
 
@@ -214,6 +217,12 @@ struct ViewerWindowView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if !viewerSession.bandwidthFormatted.isEmpty {
+                    Text(viewerSession.bandwidthFormatted)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+
                 Text(viewerSession.currentCodec)
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .padding(.horizontal, 6)
@@ -256,7 +265,67 @@ struct ViewerWindowView: View {
             ZStack {
                 MetalViewRepresentable(viewerSession: viewerSession)
 
-                if viewerSession.videoSize == nil {
+                if viewerSession.pendingPin != nil {
+                    // PIN challenge overlay
+                    VStack(spacing: 16) {
+                        Image(systemName: "lock.shield")
+                            .font(.system(size: 32, weight: .light))
+                            .foregroundColor(.pearGreen)
+
+                        Text("PIN Verification")
+                            .font(.system(size: 16, weight: .semibold))
+
+                        if let fp = viewerSession.hostFingerprint {
+                            Text(fp)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text("Enter the PIN shown on the host")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+
+                        HStack(spacing: 8) {
+                            TextField("PIN", text: $viewerSession.pinEntryText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                                .multilineTextAlignment(.center)
+                                .frame(width: 160)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color.primary.opacity(0.06))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(Color.pearGreen.opacity(0.3), lineWidth: 1)
+                                )
+                                .onSubmit { viewerSession.submitPin() }
+
+                            Button {
+                                viewerSession.submitPin()
+                            } label: {
+                                Image(systemName: "arrow.right.circle.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.pearGreen)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(viewerSession.pinEntryText.isEmpty)
+                        }
+
+                        Button {
+                            viewerSession.disconnect()
+                        } label: {
+                            Text("Cancel")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                } else if viewerSession.videoSize == nil {
                     // Waiting for first frame
                     TimelineView(.animation) { timeline in
                         let t = timeline.date.timeIntervalSinceReferenceDate
@@ -503,6 +572,11 @@ struct ViewerWindowView: View {
         savedHosts = MacSavedHost.loadAll()
         isConnecting = true
         Task {
+            // Stop hosting before connecting as viewer — prevents crossed connections
+            // where both sides see each other as peers and send PIN challenges.
+            // Must await completion before connecting.
+            await onWillConnect?()
+
             do {
                 try await viewerSession.connect(code: trimmed)
             } catch {
@@ -543,16 +617,19 @@ struct ViewerWindowView: View {
 
     private func probeHosts() {
         guard !savedHosts.isEmpty else { return }
+        probeTask?.cancel()
         networkManager.onLookupResult = { code, online in
             DispatchQueue.main.async {
                 hostOnlineStatus[code.uppercased()] = online
             }
         }
-        Task {
+        probeTask = Task {
             if !networkManager.isWorkletAlive {
                 try? await networkManager.startRuntime()
             }
+            guard !Task.isCancelled else { return }
             for host in savedHosts {
+                guard !Task.isCancelled else { return }
                 networkManager.lookupPeer(code: host.code)
             }
         }

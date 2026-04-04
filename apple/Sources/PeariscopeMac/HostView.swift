@@ -91,8 +91,7 @@ struct HostActiveView: View {
     @State private var codeVisible = false
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 10) {
+        VStack(spacing: 10) {
                 // Live status badge
                 HStack(spacing: 6) {
                     Circle()
@@ -164,6 +163,29 @@ struct HostActiveView: View {
                 }
                 .padding(.horizontal, 16)
 
+                // Screen Recording permission warning
+                if !hostSession.hasScreenRecordingPermission {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                            .font(.system(size: 10))
+                        Text("Screen Recording denied")
+                            .font(.system(size: 10))
+                        Spacer()
+                        Button("Open Settings") {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                        }
+                            .font(.system(size: 10))
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red)
+                            .controlSize(.mini)
+                    }
+                    .padding(8)
+                    .background(Color.red.opacity(0.07))
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .padding(.horizontal, 16)
+                }
+
                 // Accessibility warning
                 if !hostSession.hasAccessibilityPermission {
                     HStack(spacing: 6) {
@@ -184,11 +206,7 @@ struct HostActiveView: View {
                     .padding(.horizontal, 16)
                 }
 
-                // PIN verification
-                if let pin = hostSession.pendingPeerPin {
-                    pinApprovalCard(pin: pin)
-                        .padding(.horizontal, 16)
-                }
+                // PIN verification handled by floating panel (AppDelegate)
 
                 // Stop button
                 Button(role: .destructive) {
@@ -211,9 +229,8 @@ struct HostActiveView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
-            }
         }
-        .frame(maxHeight: 420)
+        .animation(.easeInOut(duration: 0.2), value: hostSession.pendingPeerPin != nil)
     }
 
     // MARK: - Components
@@ -389,6 +406,83 @@ struct HostActiveView: View {
                 .strokeBorder(Color.orange.opacity(0.2), lineWidth: 1)
         )
     }
+}
+
+// MARK: - Floating PIN Approval Panel
+
+struct PinApprovalPanelView: View {
+    @ObservedObject var hostSession: HostSession
+    var onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 14))
+                    .foregroundColor(.orange)
+                Text("Peer Wants to Connect")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+            }
+
+            if let fingerprint = hostSession.pendingPeerFingerprint {
+                HStack {
+                    Text(fingerprint)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button(role: .destructive) {
+                    hostSession.respondToPeer(accepted: false)
+                    onDismiss()
+                } label: {
+                    Label("Reject", systemImage: "xmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .controlSize(.regular)
+
+                Button {
+                    hostSession.respondToPeer(accepted: true)
+                    onDismiss()
+                } label: {
+                    Label("Approve", systemImage: "checkmark.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.pearGreen)
+                .controlSize(.regular)
+            }
+            .padding(.top, 4)
+        }
+        .padding(16)
+        .background(
+            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+    }
+}
+
+struct VisualEffectView: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    let blendingMode: NSVisualEffectView.BlendingMode
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 // MARK: - Utilities

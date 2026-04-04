@@ -10,12 +10,14 @@ struct SettingsView: View {
 
     @State private var maxViewers: Int = UserDefaults.standard.integer(forKey: "peariscope.maxViewers").clamped(to: 1...20, default: 5)
     @State private var requirePin: Bool = UserDefaults.standard.object(forKey: "peariscope.requirePin") as? Bool ?? true
+    @State private var skipPinOnReconnect: Bool = UserDefaults.standard.bool(forKey: "peariscope.skipPinOnReconnect")
     @State private var pinCode: String = UserDefaults.standard.string(forKey: "peariscope.pinCode") ?? ""
     @State private var newCodeEachSession: Bool = UserDefaults.standard.bool(forKey: "peariscope.newCodeEachSession")
     @State private var adaptiveResolution: Bool = UserDefaults.standard.object(forKey: "peariscope.adaptiveResolution") as? Bool ?? true
     @State private var startSharingOnStartup: Bool = UserDefaults.standard.bool(forKey: "peariscope.startSharingOnStartup")
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @State private var clipboardSync: Bool = UserDefaults.standard.object(forKey: "peariscope.clipboardSync") as? Bool ?? true
+    @State private var audioEnabled: Bool = UserDefaults.standard.object(forKey: "peariscope.audioEnabled") as? Bool ?? true
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -49,11 +51,25 @@ struct SettingsView: View {
                                     .strokeBorder(pinCode.count < 6 ? Color.orange.opacity(0.3) : Color.primary.opacity(0.08), lineWidth: 1)
                             )
                             .frame(maxWidth: 130)
-                            .onChange(of: pinCode) { save("peariscope.pinCode", pinCode) }
+                            .onChange(of: pinCode) {
+                                // Only save PINs with 6+ characters
+                                if pinCode.count >= 6 {
+                                    save("peariscope.pinCode", pinCode)
+                                }
+                            }
                         Spacer()
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 4)
+
+                    settingToggle(
+                        icon: "arrow.triangle.2.circlepath",
+                        iconColor: .green,
+                        title: "Skip PIN on Reconnect",
+                        subtitle: "Auto-approve peers that already passed PIN",
+                        isOn: $skipPinOnReconnect
+                    )
+                    .onChange(of: skipPinOnReconnect) { save("peariscope.skipPinOnReconnect", skipPinOnReconnect) }
                 }
 
                 settingRow(
@@ -119,6 +135,15 @@ struct SettingsView: View {
                     isOn: $clipboardSync
                 )
                 .onChange(of: clipboardSync) { save("peariscope.clipboardSync", clipboardSync) }
+
+                settingToggle(
+                    icon: "speaker.wave.2.fill",
+                    iconColor: .indigo,
+                    title: "Stream Audio",
+                    subtitle: "Share system audio with viewers",
+                    isOn: $audioEnabled
+                )
+                .onChange(of: audioEnabled) { save("peariscope.audioEnabled", audioEnabled) }
 
                 // --- System ---
                 sectionHeader("System")

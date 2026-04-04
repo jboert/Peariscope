@@ -68,17 +68,17 @@ public final class InputCapture: @unchecked Sendable {
 
     private func handleKeyEvent(_ event: NSEvent) {
         let modifiers = convertModifiers(event.modifierFlags)
+        // Convert macOS CGKeyCode to platform-neutral X11 keysym
+        let keysym = cgKeyCodeToXK[event.keyCode] ?? UInt32(event.keyCode)
 
         if event.type == .flagsChanged {
-            // Modifier key change — determine if pressed or released by checking flags
-            let keycode = UInt32(event.keyCode)
             let pressed = isModifierPressed(keyCode: event.keyCode, flags: event.modifierFlags)
-            let inputEvent = makeKeyEvent(keycode: keycode, modifiers: modifiers, pressed: pressed)
+            let inputEvent = makeKeyEvent(keycode: keysym, modifiers: modifiers, pressed: pressed)
             onInputEvent?(inputEvent)
         } else {
             let pressed = event.type == .keyDown
             let inputEvent = makeKeyEvent(
-                keycode: UInt32(event.keyCode),
+                keycode: keysym,
                 modifiers: modifiers,
                 pressed: pressed
             )

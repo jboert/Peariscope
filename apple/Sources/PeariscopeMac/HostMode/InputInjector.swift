@@ -49,9 +49,16 @@ public final class InputInjector: @unchecked Sendable {
     private func injectKey(_ key: Peariscope_KeyEvent) {
         // Check for virtual keycode marker (0x80000000 in modifiers)
         if key.modifiers & 0x80000000 != 0 {
-            // Raw CGKeyCode (backspace=51, return=36, tab=48, etc.)
+            // Platform-neutral keycode (X11 keysym). Map to macOS CGKeyCode.
+            let cgKey: CGKeyCode
+            if let mapped = xkToCGKeyCode[key.keycode] {
+                cgKey = CGKeyCode(mapped)
+            } else {
+                // Unknown keysym — try as raw CGKeyCode for backwards compat
+                cgKey = CGKeyCode(key.keycode)
+            }
             guard let event = CGEvent(keyboardEventSource: nil,
-                                       virtualKey: CGKeyCode(key.keycode),
+                                       virtualKey: cgKey,
                                        keyDown: key.pressed) else { return }
             let realModifiers = key.modifiers & 0x7FFFFFFF
             if realModifiers != 0 {

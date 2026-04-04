@@ -35,6 +35,7 @@ struct PopoverContentView: View {
             footer
         }
         .frame(width: 340)
+        .fixedSize(horizontal: false, vertical: true)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -94,6 +95,9 @@ struct PopoverContentView: View {
                 HostIdleView(networkManager: networkManager, hostSession: hostSession)
             }
 
+            // OTA update status
+            otaStatusBanner
+
             if let error = networkManager.lastError {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.system(size: 10))
@@ -103,6 +107,65 @@ struct PopoverContentView: View {
                     .frame(maxWidth: .infinity)
                     .background(Color.red.opacity(0.06))
             }
+        }
+    }
+
+    // MARK: - OTA Update Banner
+
+    @ViewBuilder
+    private var otaStatusBanner: some View {
+        switch networkManager.otaStatus {
+        case .idle:
+            EmptyView()
+        case .downloading:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Downloading update...")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(.blue)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(Color.blue.opacity(0.06))
+        case .ready(let version):
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 10))
+                Text("Update v\(version) ready — restart to apply")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(.green)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(Color.green.opacity(0.06))
+        case .applied(let version):
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 10))
+                Text("Updated to v\(version)")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(.green)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(Color.green.opacity(0.06))
+        case .failed(let error):
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                Text("Update failed: \(error)")
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(Color.orange.opacity(0.06))
         }
     }
 

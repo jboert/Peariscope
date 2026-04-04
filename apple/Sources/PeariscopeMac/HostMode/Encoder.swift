@@ -68,8 +68,8 @@ public final class H264Encoder: @unchecked Sendable {
         setProperty(kVTCompressionPropertyKey_RealTime, value: true)
         setProperty(kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Main_AutoLevel)
         setProperty(kVTCompressionPropertyKey_AllowFrameReordering, value: false)  // No B-frames
-        setProperty(kVTCompressionPropertyKey_MaxKeyFrameInterval, value: fps * 2)  // Keyframe every 2s
-        setProperty(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 2.0)
+        setProperty(kVTCompressionPropertyKey_MaxKeyFrameInterval, value: fps)  // Keyframe every 1s
+        setProperty(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 1.0)
         setProperty(kVTCompressionPropertyKey_AverageBitRate, value: bitrate)
         setProperty(kVTCompressionPropertyKey_ExpectedFrameRate, value: fps)
 

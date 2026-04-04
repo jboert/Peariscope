@@ -70,8 +70,8 @@ public final class H265Encoder: @unchecked Sendable {
         setProperty(kVTCompressionPropertyKey_RealTime, value: true)
         setProperty(kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_HEVC_Main_AutoLevel)
         setProperty(kVTCompressionPropertyKey_AllowFrameReordering, value: false)
-        setProperty(kVTCompressionPropertyKey_MaxKeyFrameInterval, value: fps * 2)
-        setProperty(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 2.0)
+        setProperty(kVTCompressionPropertyKey_MaxKeyFrameInterval, value: fps)  // Keyframe every 1s
+        setProperty(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 1.0)
         setProperty(kVTCompressionPropertyKey_AverageBitRate, value: bitrate)
         setProperty(kVTCompressionPropertyKey_ExpectedFrameRate, value: fps)
 
