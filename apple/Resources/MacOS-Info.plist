@@ -15,16 +15,26 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.2.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>120</string>
     <key>LSMinimumSystemVersion</key>
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>Peariscope needs screen recording permission to share your screen with connected peers.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Peariscope needs accessibility to inject remote input events.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Peariscope advertises on the local network so iOS viewers can discover this host.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_peariscope._tcp</string>
+    </array>
     <key>LSUIElement</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://peariscope.app/appcast.xml</string>
+    <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>CFBundleURLTypes</key>
     <array>

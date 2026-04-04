@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Peariscope Updates</title>
+    <item>
+      <title>Version 1.1.0</title>
+      <sparkle:version>2026031700</sparkle:version>
+      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 17 Mar 2026 00:00:00 +0000</pubDate>
+      <enclosure
+        url="https://peariscope.app/releases/Peariscope-1.1.0.dmg"
+        sparkle:edSignature=""
+        length="0"
+        type="application/octet-stream"
+      />
+    </item>
+  </channel>
+</rss>

@@ -10,6 +10,9 @@ packages:
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf.git
     from: "1.25.0"
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
 
 settings:
   base:
@@ -61,6 +64,8 @@ targets:
       - target: PeariscopeCoreMac
       - framework: Frameworks/BareKit.xcframework
         embed: true
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.peariscope.mac

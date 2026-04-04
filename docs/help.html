@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Peariscope Help Center</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2129;
+    --surface3: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --text-dim: #6e7681;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #d2a8ff;
+    --accent4: #f78166;
+    --code-bg: #1a1f27;
+    --sidebar-w: 260px;
+    --header-h: 56px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Header ── */
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--header-h);
+    background: rgba(13,17,23,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    gap: 16px;
+  }
+  header .logo {
+    font-size: 1.1rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #58a6ff, #3fb950);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-decoration: none;
+  }
+  header .divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+  }
+  header .title {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  header .search {
+    margin-left: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 14px;
+    color: var(--text);
+    font-size: 0.85rem;
+    width: 240px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  header .search:focus { border-color: var(--accent); }
+  header .search::placeholder { color: var(--text-dim); }
+  .menu-toggle {
+    display: none;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 4px 8px;
+    font-size: 1.2rem;
+    cursor: pointer;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    position: fixed;
+    top: var(--header-h);
+    left: 0;
+    bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 20px 0;
+    z-index: 100;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .sidebar .section-label {
+    padding: 8px 20px 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+  }
+  .sidebar a {
+    display: block;
+    padding: 6px 20px 6px 28px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .sidebar a:hover {
+    color: var(--text);
+    background: var(--surface2);
+  }
+  .sidebar a.active {
+    color: var(--accent);
+    border-left-color: var(--accent);
+    background: rgba(88,166,255,0.06);
+  }
+
+  /* ── Main ── */
+  main {
+    margin-left: var(--sidebar-w);
+    margin-top: var(--header-h);
+    max-width: 780px;
+    padding: 40px 48px 80px;
+  }
+
+  /* ── Typography ── */
+  h1 {
+    font-size: 2.2rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 8px;
+  }
+  h1 + .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    margin-bottom: 40px;
+  }
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 56px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: -0.01em;
+  }
+  h2:first-of-type { margin-top: 0; }
+  h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 36px 0 12px;
+    color: var(--accent);
+  }
+  h4 { font-size: 1rem; font-weight: 600; margin: 24px 0 8px; }
+  p { color: var(--text-muted); margin-bottom: 16px; }
+  strong { color: var(--text); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul, ol { padding-left: 24px; margin-bottom: 16px; }
+  li { color: var(--text-muted); margin-bottom: 6px; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  /* ── Callouts ── */
+  .callout {
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 20px 0;
+    font-size: 0.9rem;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .callout .icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 2px; }
+  .callout p { margin: 0; }
+  .callout-info { background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.2); }
+  .callout-info .icon { color: var(--accent); }
+  .callout-warn { background: rgba(210,168,255,0.08); border: 1px solid rgba(210,168,255,0.2); }
+  .callout-warn .icon { color: var(--accent3); }
+  .callout-tip { background: rgba(63,185,80,0.08); border: 1px solid rgba(63,185,80,0.2); }
+  .callout-tip .icon { color: var(--accent2); }
+  .callout-danger { background: rgba(247,129,102,0.08); border: 1px solid rgba(247,129,102,0.2); }
+  .callout-danger .icon { color: var(--accent4); }
+
+  /* ── Steps ── */
+  .steps { counter-reset: step; list-style: none; padding: 0; margin: 16px 0 24px; }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 12px 0 12px 52px;
+    margin-bottom: 4px;
+    border-left: 2px solid var(--border);
+    margin-left: 15px;
+  }
+  .steps li:last-child { border-left-color: transparent; }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: -16px; top: 10px;
+    width: 30px; height: 30px;
+    background: var(--bg);
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700; color: var(--accent);
+  }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.9rem; }
+  th {
+    text-align: left; padding: 10px 14px;
+    background: var(--surface); border-bottom: 2px solid var(--border);
+    color: var(--text); font-weight: 600; font-size: 0.8rem;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
+  tr:hover td { background: var(--surface2); }
+  td:first-child { color: var(--text); font-weight: 500; }
+
+  /* ── Code ── */
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 4px;
+    font-size: 0.85em; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--accent3);
+  }
+  pre {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 18px; overflow-x: auto; margin: 16px 0; font-size: 0.85rem; line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; color: var(--text); }
+
+  /* ── Expandable ── */
+  details {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 8px; overflow: hidden;
+  }
+  details summary {
+    padding: 12px 18px; cursor: pointer; font-weight: 600; color: var(--text);
+    list-style: none; display: flex; align-items: center; gap: 8px; font-size: 0.9rem;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before {
+    content: '\25B6'; font-size: 0.6rem; color: var(--text-dim); transition: transform 0.15s;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  details .content { padding: 0 18px 14px; color: var(--text-muted); font-size: 0.9rem; }
+  details .content p { margin-bottom: 8px; }
+
+  /* ── Cards ── */
+  .feature-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px; margin: 16px 0;
+  }
+  .feature-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px; transition: border-color 0.2s;
+  }
+  .feature-card:hover { border-color: var(--accent); }
+  .feature-card h4 { margin: 0 0 6px; font-size: 0.95rem; }
+  .feature-card p { margin: 0; font-size: 0.85rem; }
+
+  /* ── Kbd ── */
+  kbd {
+    background: var(--surface3); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 6px; font-size: 0.8rem;
+    font-family: inherit; color: var(--text);
+    box-shadow: 0 1px 0 var(--border);
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .sidebar.open { display: block; width: 100%; z-index: 150; }
+    main { margin-left: 0; padding: 32px 20px 80px; }
+    .menu-toggle { display: block; }
+    header .search { width: 160px; }
+  }
+  @media (max-width: 500px) {
+    header .search { display: none; }
+    h1 { font-size: 1.6rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">&#9776;</button>
+  <a href="../README.html" class="logo">Peariscope</a>
+  <div class="divider"></div>
+  <span class="title">Help Center</span>
+  <input type="text" class="search" placeholder="Search docs..." id="searchInput" oninput="filterSidebar(this.value)">
+</header>
+
+<nav class="sidebar" id="sidebar">
+  <div class="section-label">Getting Started</div>
+  <a href="#overview">Overview</a>
+  <a href="#hosting">Set Up as Host</a>
+  <a href="#viewing-ios">Connect from iOS</a>
+  <a href="#viewing-mac">Connect from Mac</a>
+  <a href="#connection-codes">Connection Codes</a>
+  <a href="#pin-verification">PIN Verification</a>
+
+  <div class="section-label">Using Peariscope</div>
+  <a href="#touch-controls">Touch Controls (iOS)</a>
+  <a href="#keyboard">Keyboard Input</a>
+  <a href="#trackpad-mode">Trackpad Mode</a>
+  <a href="#zoom-pan">Zoom &amp; Pan</a>
+  <a href="#clipboard">Clipboard Sharing</a>
+  <a href="#multi-display">Multiple Displays</a>
+  <a href="#audio">Audio Streaming</a>
+  <a href="#adaptive-quality">Adaptive Quality</a>
+
+  <div class="section-label">Advanced</div>
+  <a href="#codec">H.264 vs H.265</a>
+  <a href="#networking">How P2P Works</a>
+  <a href="#security">Security Deep Dive</a>
+  <a href="#performance">Performance Tips</a>
+
+  <div class="section-label">Troubleshooting</div>
+  <a href="#trouble-connecting">Connection Issues</a>
+  <a href="#trouble-video">Video Issues</a>
+  <a href="#trouble-input">Input Issues</a>
+  <a href="#trouble-performance">Performance Issues</a>
+</nav>
+
+<main>
+
+<!-- ═══════════════════════ GETTING STARTED ═══════════════════════ -->
+
+<h1>Peariscope Help Center</h1>
+<p class="subtitle">Everything you need to know about using Peariscope for remote desktop access.</p>
+
+<h2 id="overview">Overview</h2>
+<p>Peariscope is a peer-to-peer remote desktop app. A <strong>host</strong> (macOS) shares their screen, and <strong>viewers</strong> (iOS, macOS) connect to see and control the desktop remotely.</p>
+
+<div style="text-align:center; margin: 28px 0;">
+  <img src="../screenshots/mac-home.png" alt="macOS app" style="max-width: 280px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 4px 24px rgba(0,0,0,0.4); vertical-align: top;">
+  <span style="display: inline-block; width: 32px;"></span>
+  <img src="../screenshots/ios-home.png" alt="iOS app" style="max-width: 160px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 4px 24px rgba(0,0,0,0.4); vertical-align: top;">
+</div>
+
+<p>Unlike traditional remote desktop tools, Peariscope has:</p>
+<div class="feature-grid">
+  <div class="feature-card">
+    <h4>No servers</h4>
+    <p>Devices connect directly to each other. Your screen data never passes through a third party.</p>
+  </div>
+  <div class="feature-card">
+    <h4>No accounts</h4>
+    <p>No sign-up, no email, no password. Just share a code and connect.</p>
+  </div>
+  <div class="feature-card">
+    <h4>End-to-end encrypted</h4>
+    <p>All traffic is encrypted with XChaCha20-Poly1305. Even the P2P relay nodes can't see your data.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Adaptive streaming</h4>
+    <p>Video quality, resolution, and framerate adjust automatically based on your network conditions.</p>
+  </div>
+</div>
+
+<h2 id="hosting">Set Up as Host (macOS)</h2>
+<p>The host is the computer whose screen will be shared. Currently only macOS is supported as a host.</p>
+
+<div style="text-align:center; margin: 24px 0;">
+  <img src="../screenshots/mac-home.png" alt="macOS hosting screen showing connection code, stats, and QR code" style="max-width: 320px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
+  <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 8px;">The macOS menu bar popover while hosting</p>
+</div>
+
+<ol class="steps">
+  <li><strong>Launch Peariscope</strong> — the app lives in your menu bar (top-right corner). Click the pear icon to open the popover.</li>
+  <li><strong>Grant permissions</strong> — on first launch, macOS will ask for Screen Recording and Accessibility permissions. Both are required. You can manage these in System Settings &rarr; Privacy &amp; Security.</li>
+  <li><strong>Start hosting</strong> — click <strong>Start Hosting</strong>. The app will connect to the P2P network and generate a 12-word connection code.</li>
+  <li><strong>Share the code</strong> — give the 12 words to the person who wants to view your screen. You can read them aloud, send via a secure message, etc.</li>
+  <li><strong>Approve the viewer</strong> — when someone connects, a PIN popup appears. Read the PIN to the viewer so they can confirm the connection.</li>
+</ol>
+
+<div class="callout callout-info">
+  <span class="icon">&#9432;</span>
+  <p>Your screen is only shared while you have the hosting session active. Click <strong>Stop Hosting</strong> to end the session at any time.</p>
+</div>
+
+<h2 id="viewing-ios">Connect from iOS</h2>
+
+<div style="text-align:center; margin: 24px 0;">
+  <img src="../screenshots/ios-home.png" alt="iOS home screen with seed phrase input, Scan QR and Paste buttons, and recent connections" style="max-width: 240px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 4px 24px rgba(0,0,0,0.4);">
+  <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 8px;">The iOS connect screen with recent connections</p>
+</div>
+
+<ol class="steps">
+  <li><strong>Open Peariscope</strong> on your iPhone or iPad.</li>
+  <li><strong>Enter the connection code</strong> — type the 12 words from the host. Autocomplete will suggest words as you type — just enter the first 2-3 letters and tap the suggestion.</li>
+  <li><strong>Tap Connect</strong> — the app will search for the host on the P2P network. This usually takes 5-15 seconds.</li>
+  <li><strong>Enter the PIN</strong> — when the host's PIN popup appears, they'll tell you the PIN. Type it in and confirm.</li>
+  <li><strong>You're in</strong> — the host's desktop will appear. Use touch gestures to navigate (see <a href="#touch-controls">Touch Controls</a>).</li>
+</ol>
+
+<div class="callout callout-tip">
+  <span class="icon">&#10004;</span>
+  <p><strong>Tip:</strong> You don't need to type full words. The autocomplete only needs 2-3 characters to narrow down to the right BIP39 word.</p>
+</div>
+
+<h2 id="viewing-mac">Connect from Mac</h2>
+<ol class="steps">
+  <li>Open Peariscope and switch to <strong>Viewer</strong> mode from the menu bar popover.</li>
+  <li>Enter the 12-word connection code.</li>
+  <li>Enter the PIN when prompted.</li>
+  <li>Use your keyboard and mouse to control the remote desktop. Press <kbd>Esc</kbd> or click the disconnect button to end the session.</li>
+</ol>
+
+<h2 id="connection-codes">Connection Codes</h2>
+<p>Peariscope uses <strong>BIP39 mnemonic phrases</strong> — the same standard used by cryptocurrency wallets — as connection codes.</p>
+<table>
+  <tr><td>Format</td><td>12 English words from a standardized 2,048-word list</td></tr>
+  <tr><td>Entropy</td><td>132 bits — 5.4 &times; 10<sup>39</sup> possible combinations</td></tr>
+  <tr><td>Example</td><td><code>abandon ability able about above absent absorb abstract absurd abuse access accident</code></td></tr>
+  <tr><td>Lifetime</td><td>One session — a new code is generated each time you start hosting</td></tr>
+</table>
+<p>The code is used to derive a <strong>topic hash</strong> that both devices use to find each other on the Hyperswarm distributed hash table. Anyone with the code can attempt to connect, which is why PIN verification exists as a second layer.</p>
+
+<div class="callout callout-warn">
+  <span class="icon">&#9888;</span>
+  <p>Treat connection codes like passwords. Don't post them publicly or send them over unencrypted channels. Anyone with the code can attempt to connect to your session.</p>
+</div>
+
+<h2 id="pin-verification">PIN Verification</h2>
+<p>When a viewer connects, the host sees a PIN. The viewer must enter this same PIN to prove they're the intended recipient.</p>
+<h4>Why is this needed?</h4>
+<p>The connection code gets you to the right "room" on the P2P network, but it doesn't prove identity. The PIN is an out-of-band verification — the host reads it aloud or sends it through a separate channel, confirming the viewer is who they claim to be.</p>
+<h4>Brute force protection</h4>
+<ul>
+  <li>After <strong>5 failed PIN attempts</strong>, the peer is locked out for 5 minutes</li>
+  <li>Lockout is tracked per peer public key — switching devices won't bypass it</li>
+  <li>A new PIN is generated for each connection attempt</li>
+</ul>
+
+<!-- ═══════════════════════ USING PEARISCOPE ═══════════════════════ -->
+
+<h2 id="touch-controls">Touch Controls (iOS)</h2>
+<p>Peariscope maps touch gestures to desktop mouse/keyboard actions:</p>
+<table>
+  <thead><tr><th>Gesture</th><th>Action</th><th>Details</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Tap</strong></td><td>Click</td><td>Moves cursor to tap position and performs a left-click</td></tr>
+    <tr><td><strong>Long press</strong></td><td>Drag</td><td>Hold to start dragging. Move finger while held. Lift to release. Haptic feedback confirms drag start.</td></tr>
+    <tr><td><strong>Two-finger tap</strong></td><td>Right-click</td><td>Equivalent to right-clicking at the current cursor position</td></tr>
+    <tr><td><strong>Three-finger tap</strong></td><td>Toggle toolbar</td><td>Shows/hides the disconnect button and status bar</td></tr>
+    <tr><td><strong>Pinch</strong></td><td>Zoom</td><td>Zoom from 1x (fit-to-screen) up to 5x magnification</td></tr>
+    <tr><td><strong>Double tap</strong></td><td>Toggle zoom mode</td><td>Switches between fit-to-screen and 1:1 pixel mapping</td></tr>
+    <tr><td><strong>One-finger pan</strong></td><td>Move cursor</td><td>In trackpad mode, moves the cursor relative to finger movement (like a laptop trackpad)</td></tr>
+  </tbody>
+</table>
+
+<h2 id="keyboard">Keyboard Input</h2>
+<h4>iOS</h4>
+<p>Tap the <strong>keyboard icon</strong> in the toolbar to show the on-screen keyboard. All key presses — including special keys and shortcuts — are forwarded to the host.</p>
+<p>Supported inputs:</p>
+<ul>
+  <li>All standard characters (letters, numbers, symbols)</li>
+  <li>Modifier keys: Shift, Control, Option/Alt, Command</li>
+  <li>Special keys: Enter, Tab, Escape, Arrow keys, Delete/Backspace</li>
+  <li>Keyboard shortcuts (e.g., <kbd>Cmd</kbd>+<kbd>C</kbd> to copy on the remote Mac)</li>
+</ul>
+
+<h4>macOS Viewer</h4>
+<p>When input capture is active, your keyboard and mouse are forwarded directly to the host. Toggle input capture with the button in the viewer toolbar.</p>
+
+<h2 id="trackpad-mode">Trackpad Mode</h2>
+<p>On iOS, trackpad mode is enabled by default. Instead of moving the cursor to where you tap, your finger acts like a laptop trackpad — the cursor moves <em>relative</em> to your finger movement.</p>
+<p>This gives you much finer control, especially on large desktops viewed on a small phone screen. Single taps still click at the current cursor position.</p>
+
+<h2 id="zoom-pan">Zoom &amp; Pan</h2>
+<p>When viewing a large desktop (e.g., 3440x1440) on a small screen, you'll want to zoom in:</p>
+<ul>
+  <li><strong>Pinch to zoom</strong> from 1x to 5x</li>
+  <li><strong>Double-tap</strong> to toggle between fit-to-screen and 1:1 pixel mapping</li>
+  <li>When zoomed in, the viewport <strong>follows the cursor</strong> automatically — as you move the cursor near the edge of the visible area, the viewport pans to keep up</li>
+</ul>
+
+<h2 id="clipboard">Clipboard Sharing</h2>
+<p>Clipboard content syncs automatically between host and viewer in both directions.</p>
+<table>
+  <thead><tr><th>Feature</th><th>Details</th></tr></thead>
+  <tbody>
+    <tr><td>Supported formats</td><td>Plain text and PNG images</td></tr>
+    <tr><td>Max text size</td><td>1 MB</td></tr>
+    <tr><td>Max image size</td><td>10 MB</td></tr>
+    <tr><td>Sync interval</td><td>1 second (polling-based)</td></tr>
+    <tr><td>Direction</td><td>Bidirectional — host &harr; viewer</td></tr>
+  </tbody>
+</table>
+<p>Copy something on the host and paste on the viewer, or vice versa. There's a ~1 second delay due to polling.</p>
+
+<h2 id="multi-display">Multiple Displays</h2>
+<p>If the host has multiple monitors, Peariscope captures one display at a time. The host can choose which display to share from the hosting interface. Multi-display switching from the viewer side is coming in a future update.</p>
+
+<h2 id="audio">Audio Streaming</h2>
+<p>System audio from the host is streamed to the viewer alongside video. Audio uses AAC encoding at 48kHz stereo, 128kbps — high quality at low bandwidth.</p>
+<p>Audio plays automatically when connected. There is no separate volume control yet — use your device volume.</p>
+
+<h2 id="adaptive-quality">Adaptive Quality</h2>
+<p>Peariscope continuously monitors network conditions and adjusts streaming parameters in real time:</p>
+<table>
+  <thead><tr><th>Metric</th><th>What it affects</th></tr></thead>
+  <tbody>
+    <tr><td>Round-trip time (RTT)</td><td>Measured via ping/pong. High RTT triggers bitrate and resolution reduction.</td></tr>
+    <tr><td>Packet loss</td><td>Above 3% = moderate reduction. Above 10% = aggressive reduction.</td></tr>
+    <tr><td>Viewer throughput</td><td>If the viewer receives less than the host sends, bitrate is capped to match.</td></tr>
+    <tr><td>Jitter</td><td>High variance in frame arrival times triggers quality reduction.</td></tr>
+    <tr><td>Decode FPS</td><td>If the viewer's decoder can't keep up, the host reduces frame rate.</td></tr>
+  </tbody>
+</table>
+<p>Quality ramps <strong>down quickly</strong> (1 bad reading) and <strong>up gradually</strong> (3 consecutive good readings) to avoid oscillation.</p>
+
+<!-- ═══════════════════════ ADVANCED ═══════════════════════ -->
+
+<h2 id="codec">H.264 vs H.265</h2>
+<p>Peariscope supports both codecs:</p>
+<table>
+  <thead><tr><th></th><th>H.264</th><th>H.265 (HEVC)</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Compression</strong></td><td>Good</td><td>~30-40% better at same quality</td></tr>
+    <tr><td><strong>Compatibility</strong></td><td>All devices</td><td>Most modern devices</td></tr>
+    <tr><td><strong>CPU usage</strong></td><td>Lower</td><td>Slightly higher decode</td></tr>
+    <tr><td><strong>Best for</strong></td><td>Compatibility, older devices</td><td>High-res desktops, bandwidth savings</td></tr>
+  </tbody>
+</table>
+<p>The host can toggle between codecs in the settings. If a viewer can't decode H.265, it automatically requests a fallback to H.264.</p>
+
+<h2 id="networking">How P2P Works</h2>
+<p>Peariscope uses <a href="https://github.com/holepunchto/hyperswarm">Hyperswarm</a> for peer-to-peer connectivity:</p>
+<ol>
+  <li><strong>Discovery</strong> — the connection code is hashed into a "topic." Both host and viewer announce this topic on the Hyperswarm DHT (distributed hash table).</li>
+  <li><strong>Hole punching</strong> — Hyperswarm attempts direct UDP connections using various NAT traversal techniques.</li>
+  <li><strong>Relay fallback</strong> — if direct connection fails (strict NATs, firewalls), traffic routes through Hyperswarm relay nodes. Data is still end-to-end encrypted — relays can't read it.</li>
+  <li><strong>Encrypted stream</strong> — once connected, all data flows through a Secret Stream (Noise protocol + XChaCha20-Poly1305).</li>
+</ol>
+
+<div class="callout callout-info">
+  <span class="icon">&#9432;</span>
+  <p>Connection times vary from 5-30 seconds depending on NAT types. Devices on the same local network connect fastest.</p>
+</div>
+
+<h2 id="security">Security Deep Dive</h2>
+<h4>Encryption</h4>
+<p>All data (video, audio, input, clipboard) is encrypted end-to-end using Hyperswarm's Secret Stream protocol:</p>
+<ul>
+  <li><strong>Key exchange:</strong> Noise XX handshake pattern</li>
+  <li><strong>Stream cipher:</strong> XChaCha20-Poly1305 (AEAD)</li>
+  <li><strong>Per-device keys:</strong> Each device generates a Curve25519 keypair stored in the OS keychain</li>
+</ul>
+
+<h4>What Peariscope does NOT see</h4>
+<ul>
+  <li>No account data (there are no accounts)</li>
+  <li>No usage analytics or telemetry</li>
+  <li>No connection metadata (the DHT is distributed, not centralized)</li>
+  <li>No screen content (everything is encrypted device-to-device)</li>
+</ul>
+
+<h4>Trust model</h4>
+<table>
+  <tr><td>Connection code</td><td>Proves you were invited to the session (knowledge factor)</td></tr>
+  <tr><td>PIN verification</td><td>Proves you're the intended viewer (out-of-band confirmation)</td></tr>
+  <tr><td>Device key</td><td>Unique identity per device, stored in OS keychain</td></tr>
+</table>
+
+<h2 id="performance">Performance Tips</h2>
+<div class="feature-grid">
+  <div class="feature-card">
+    <h4>Use wired ethernet</h4>
+    <p>WiFi adds latency and jitter. A wired host connection dramatically improves responsiveness.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Stay on the same network</h4>
+    <p>LAN connections bypass the internet entirely, giving the lowest possible latency.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Close bandwidth-heavy apps</h4>
+    <p>Video calls, large downloads, and cloud sync compete for bandwidth.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Use H.265 for large screens</h4>
+    <p>If both devices support it, H.265 uses ~35% less bandwidth at the same quality.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Remove phone case (iOS)</h4>
+    <p>Continuous video decoding and Metal rendering generate heat. Better airflow helps sustain performance.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Keep iOS in foreground</h4>
+    <p>iOS aggressively suspends background apps. Keep Peariscope on-screen for uninterrupted streaming.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════ TROUBLESHOOTING ═══════════════════════ -->
+
+<h2 id="trouble-connecting">Troubleshooting: Connection Issues</h2>
+
+<details>
+  <summary>"Connecting..." stays on screen forever</summary>
+  <div class="content">
+    <p>The most common causes:</p>
+    <ul>
+      <li><strong>Host isn't actively hosting</strong> — make sure the host has pressed "Start Hosting" and sees a connection code.</li>
+      <li><strong>Typo in connection code</strong> — double-check all 12 words. Use the autocomplete to avoid mistakes.</li>
+      <li><strong>Network issues</strong> — both devices need internet access. The DHT bootstrap can take 30-60 seconds on first launch.</li>
+      <li><strong>Strict firewall</strong> — some corporate/school networks block UDP traffic. Try a different network.</li>
+    </ul>
+    <p>If it's still stuck after 60 seconds, disconnect and try a fresh connection code.</p>
+  </div>
+</details>
+
+<details>
+  <summary>Connection drops frequently</summary>
+  <div class="content">
+    <p>Peariscope will auto-reconnect up to 5 times when a connection drops. If drops are frequent:</p>
+    <ul>
+      <li>Check WiFi signal strength on both ends</li>
+      <li>Move closer to your router</li>
+      <li>Avoid networks with captive portals (hotel, airport WiFi)</li>
+      <li>If on cellular, switch to WiFi if possible</li>
+    </ul>
+  </div>
+</details>
+
+<details>
+  <summary>PIN entered correctly but nothing happens</summary>
+  <div class="content">
+    <p>After entering the PIN, the host must confirm acceptance. The viewer waits for the host's confirmation before showing video. If the host dismissed the popup or the PIN didn't match:</p>
+    <ul>
+      <li>Try disconnecting and reconnecting — a new PIN will be generated</li>
+      <li>Make sure you're entering the PIN shown on the <em>host's</em> screen, not a previously used one</li>
+    </ul>
+  </div>
+</details>
+
+<h2 id="trouble-video">Troubleshooting: Video Issues</h2>
+
+<details>
+  <summary>Black screen after connecting</summary>
+  <div class="content">
+    <p>The viewer needs a keyframe to start rendering. Keyframes are sent every 1 second and on connection, but occasionally the first one gets lost.</p>
+    <ul>
+      <li>Wait 3-5 seconds — another keyframe will arrive automatically</li>
+      <li>If still black, disconnect and reconnect</li>
+    </ul>
+  </div>
+</details>
+
+<details>
+  <summary>Video is blurry</summary>
+  <div class="content">
+    <p>The host adapts capture resolution to match your screen size and network conditions. If the network is slow, resolution is temporarily reduced.</p>
+    <ul>
+      <li>Check your network speed — slow connections force lower resolution</li>
+      <li>Wait for conditions to improve — quality ramps back up automatically</li>
+      <li>Use H.265 if available — it delivers better quality at the same bitrate</li>
+    </ul>
+  </div>
+</details>
+
+<details>
+  <summary>Video has 1-2 second delay</summary>
+  <div class="content">
+    <p>Some latency is inherent in the capture &rarr; encode &rarr; network &rarr; decode &rarr; render pipeline. Typical latency is 100-300ms. If you're seeing 1-2 seconds:</p>
+    <ul>
+      <li>You may be going through a relay (not direct P2P) — this adds latency</li>
+      <li>High jitter or packet loss causes buffering delays</li>
+      <li>Both devices on the same LAN will give the best results</li>
+    </ul>
+  </div>
+</details>
+
+<h2 id="trouble-input">Troubleshooting: Input Issues</h2>
+
+<details>
+  <summary>Can't type on iOS</summary>
+  <div class="content">
+    <p>The keyboard needs to be explicitly shown:</p>
+    <ul>
+      <li>Three-finger tap to show the toolbar</li>
+      <li>Tap the keyboard icon to bring up the on-screen keyboard</li>
+      <li>If the keyboard doesn't appear, tap the text field area and try again</li>
+    </ul>
+  </div>
+</details>
+
+<details>
+  <summary>Cursor position is slightly off</summary>
+  <div class="content">
+    <p>Touch-to-desktop coordinate mapping can be slightly off when the desktop aspect ratio differs significantly from the viewer's screen. This is a known issue being worked on. Using trackpad mode (relative movement) avoids this entirely.</p>
+  </div>
+</details>
+
+<details>
+  <summary>Clicks aren't registering</summary>
+  <div class="content">
+    <p>Make sure the host has granted <strong>Accessibility permission</strong> to Peariscope. Without it, the app can't inject mouse/keyboard events. Check System Settings &rarr; Privacy &amp; Security &rarr; Accessibility.</p>
+  </div>
+</details>
+
+<h2 id="trouble-performance">Troubleshooting: Performance Issues</h2>
+
+<details>
+  <summary>iPhone gets very hot</summary>
+  <div class="content">
+    <p>Continuous H.264/H.265 hardware decoding + Metal rendering is inherently power-intensive. To reduce heat:</p>
+    <ul>
+      <li>Remove your phone case for better heat dissipation</li>
+      <li>Reduce session length — take breaks</li>
+      <li>Avoid charging while streaming (adds heat)</li>
+      <li>Keep the phone out of direct sunlight</li>
+    </ul>
+    <p>Peariscope monitors thermal state and automatically reduces quality when the device gets hot.</p>
+  </div>
+</details>
+
+<details>
+  <summary>App crashes or gets killed on iOS</summary>
+  <div class="content">
+    <p>iOS enforces strict memory limits (~2-3GB for foreground apps). Peariscope's V8 JavaScript runtime + video decoding can approach these limits on 4GB devices.</p>
+    <ul>
+      <li>Close other apps to free memory</li>
+      <li>If crashes persist, the app will automatically attempt to reconnect on next open</li>
+      <li>Crash logs are saved to the device and shown on next launch for diagnostics</li>
+    </ul>
+  </div>
+</details>
+
+<details>
+  <summary>High CPU usage on host Mac</summary>
+  <div class="content">
+    <p>Screen capture + hardware encoding typically uses 10-20% CPU. If usage is higher:</p>
+    <ul>
+      <li>Large desktop resolutions (e.g., 5K) require more encoding work — adaptive resolution will downscale for smaller viewers</li>
+      <li>Multiple viewers multiply the encoding overhead</li>
+      <li>H.265 uses slightly more CPU than H.264 for encoding</li>
+    </ul>
+  </div>
+</details>
+
+<hr>
+<p style="text-align: center; color: var(--text-dim); font-size: 0.85rem; margin-top: 40px;">
+  Peariscope is open source under <a href="../LICENSE">GPL v3</a>.
+  Found a bug? <a href="https://github.com">Report it on GitHub</a>.
+</p>
+
+</main>
+
+<script>
+// Sidebar active state
+const links = document.querySelectorAll('.sidebar a');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      links.forEach(l => l.classList.remove('active'));
+      const link = document.querySelector(`.sidebar a[href="#${entry.target.id}"]`);
+      if (link) link.classList.add('active');
+    }
+  });
+}, { rootMargin: '-80px 0px -60% 0px' });
+
+document.querySelectorAll('h2[id]').forEach(h => observer.observe(h));
+
+// Search filter
+function filterSidebar(query) {
+  const q = query.toLowerCase();
+  document.querySelectorAll('.sidebar a').forEach(a => {
+    a.style.display = !q || a.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+  document.querySelectorAll('.sidebar .section-label').forEach(l => {
+    let next = l.nextElementSibling;
+    let anyVisible = false;
+    while (next && !next.classList.contains('section-label')) {
+      if (next.style.display !== 'none') anyVisible = true;
+      next = next.nextElementSibling;
+    }
+    l.style.display = !q || anyVisible ? '' : 'none';
+  });
+}
+
+// Close mobile sidebar on link click
+links.forEach(l => l.addEventListener('click', () => {
+  document.querySelector('.sidebar').classList.remove('open');
+}));
+</script>
+</body>
+</html>
