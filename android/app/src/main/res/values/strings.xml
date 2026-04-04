@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Peariscope</string>
+    <string name="accessibility_service_description">Allows Peariscope to inject touch and keyboard input from remote viewers when hosting your screen.</string>
+</resources>
