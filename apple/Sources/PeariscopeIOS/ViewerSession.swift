@@ -4,6 +4,8 @@ import MetalKit
 import CoreMedia
 import UIKit
 import PeariscopeCore
+import AVFoundation
+import AVKit
 
 // MARK: - iOS Viewer Session
 
@@ -12,6 +14,7 @@ final class IOSViewerSession: ObservableObject {
     @Published var isActive = false
     @Published var fps: Double = 0
     @Published var latencyMs: Double = 0
+    @Published var bandwidthBytesPerSec: Int64 = 0
     @Published var isTrackpadMode = true
     @Published var isReconnecting = false
     @Published var connectionLost = false  // true when all reconnect attempts failed
@@ -21,10 +24,17 @@ final class IOSViewerSession: ObservableObject {
     @Published var pendingPin: String?
     @Published var pinEntryText: String = ""
     @Published var hostFingerprint: String?
+    /// Live diagnostic lines shown on "Waiting for video..." overlay
+    @Published var diagnosticLines: [String] = []
     /// Remote cursor position from host (normalized 0-1)
     /// NOT @Published — updated at high frequency, would cause excessive SwiftUI re-renders
     var remoteCursorX: Float = 0.5
     var remoteCursorY: Float = 0.5
+    /// When true, ignore incoming CursorPosition from host (user is actively touching)
+    var isTouching = false
+    /// Timestamp of last touch end — suppress host cursor updates briefly after lift-off
+    /// to prevent queued host events from moving the cursor
+    var lastTouchEndTime: CFAbsoluteTime = 0
 
     /// Called when the viewer should exit back to the connect screen.
     /// ONLY called by explicit user action (disconnect button, PIN cancel).
@@ -35,12 +45,20 @@ final class IOSViewerSession: ObservableObject {
 
     private var h264Decoder: H264Decoder?
     private var h265Decoder: H265Decoder?
+    private var audioPlayer: AudioPlayer?
     private(set) var renderer: MetalRenderer?
     let networkManager: NetworkManager
     private let latencyTracker = LatencyTracker()
     private var detectedH265 = false
 
+    deinit {
+        CrashLog.write("IOSViewerSession.deinit — session deallocated")
+        NSLog("[viewer] IOSViewerSession.deinit — session deallocated")
+    }
+
     private var frameCountInInterval = 0
+    nonisolated(unsafe) private var bytesReceivedInInterval: Int64 = 0
+    private let bytesLock = NSLock()
     private var idrRetryCount = 0
     private var fpsTimer: Timer?
     private var qualityReportTimer: Timer?
@@ -48,10 +66,22 @@ final class IOSViewerSession: ObservableObject {
     private var memoryWarningObserver: NSObjectProtocol?
     private var foregroundObserver: NSObjectProtocol?
     private var thermalObserver: NSObjectProtocol?
+    private var lastBridgeDiag: String = ""
+    private var bridgeStaleCount = 0
+
+    // Jitter tracking: variance in inter-frame arrival times
+    nonisolated(unsafe) private var lastFrameArrival: CFAbsoluteTime = 0
+    nonisolated(unsafe) private var frameIntervals: [Double] = []
+    private let jitterLock = NSLock()
+
+    // MARK: - Picture-in-Picture
+    private var pipController: AVPictureInPictureController?
+    private(set) var sampleBufferDisplayLayer: AVSampleBufferDisplayLayer?
+    private var cachedFormatDescription: CMFormatDescription?
     private var currentThermalState: ProcessInfo.ThermalState = .nominal
     private var lastFrameTime: Date = Date()
-    private var textureWidth: Int = 0
-    private var textureHeight: Int = 0
+    private(set) var textureWidth: Int = 0
+    private(set) var textureHeight: Int = 0
     var cursorX: Float = 0.5
     var cursorY: Float = 0.5
     weak var mtkView: MTKView?
@@ -64,16 +94,126 @@ final class IOSViewerSession: ObservableObject {
     /// User pan offset (in normalized coords, applied on top of cursor-follow)
     var userPanOffset: SIMD2<Float> = .zero
 
-    init(networkManager: NetworkManager) {
-        self.networkManager = networkManager
+    /// Thread-safe bandwidth byte counting — called from BareKit threads.
+    nonisolated func addReceivedBytes(_ count: Int) {
+        bytesLock.lock()
+        bytesReceivedInInterval += Int64(count)
+        bytesLock.unlock()
     }
 
+    nonisolated func resetReceivedBytes() -> Int64 {
+        bytesLock.lock()
+        let bytes = bytesReceivedInInterval
+        bytesReceivedInInterval = 0
+        bytesLock.unlock()
+        return bytes
+    }
+
+    /// Formatted bandwidth string for display.
+    var bandwidthFormatted: String {
+        let bytes = bandwidthBytesPerSec
+        if bytes >= 1_000_000 {
+            return String(format: "%.1fMB/s", Double(bytes) / 1_000_000.0)
+        } else if bytes >= 1_000 {
+            return "\(bytes / 1_000)KB/s"
+        }
+        return ""
+    }
+
+    /// Whether callbacks have been configured on networkManager.
+    /// Prevents throwaway sessions (created by @StateObject during parent re-renders)
+    /// from overwriting the real session's callbacks.
+    private var callbacksConfigured = false
+
+    init(networkManager: NetworkManager) {
+        self.networkManager = networkManager
+        CrashLog.write("IOSViewerSession.init() — isConnected=\(networkManager.isConnected) peers=\(networkManager.connectedPeers.count)")
+        // Don't set networkManager callbacks here! @StateObject creates throwaway
+        // IOSViewerSession instances on every parent re-render. Those throwaways
+        // would overwrite the real session's callbacks with dead weak refs.
+        // Callbacks are set in configureCallbacks(), called from setup().
+    }
+
+    /// Set up networkManager callbacks. Called once from setup().
+    /// Must NOT be called from init() — @StateObject creates throwaway sessions
+    /// during parent view re-renders whose inits would corrupt these callbacks.
+    private func configureCallbacks() {
+        guard !callbacksConfigured else { return }
+        callbacksConfigured = true
+        NSLog("[viewer] configureCallbacks — setting networkManager callbacks")
+
+        // PIN challenges that arrive before this point are buffered in
+        // networkManager.pendingControlData and replayed when onControlData is set.
+        networkManager.onControlData = { [weak self] data in
+            NSLog("[viewer] onControlData fired: %d bytes", data.count)
+            guard let msg = try? Peariscope_ControlMessage(serializedBytes: data) else {
+                NSLog("[viewer] onControlData: failed to parse protobuf")
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let msgType: String
+                switch msg.msg {
+                case .codecNegotiation: msgType = "codecNeg"
+                case .peerChallenge: msgType = "pinChallenge"
+                case .peerChallengeResponse: msgType = "pinResponse"
+                case .displayList: msgType = "displayList"
+                case .cursorPosition: msgType = "cursor"
+                case .frameTimestamp: msgType = "timestamp"
+                default: msgType = "other"
+                }
+                if msgType != "cursor" && msgType != "timestamp" {
+                    self.addDiag("ctrl: \(msgType) (\(data.count)B)")
+                }
+                self.handleControlMessage(msg)
+            }
+        }
+
+        networkManager.onPeerConnected = { [weak self] peer in
+            DispatchQueue.main.async { [weak self] in
+                self?.addDiag("PEER CONNECTED: sid=\(peer.streamId)")
+            }
+        }
+
+        networkManager.onPeerDisconnected = { [weak self] peer in
+            guard let self else { return }
+            Task { @MainActor in
+                self.attemptReconnect()
+            }
+        }
+
+        networkManager.onJSLog = { [weak self] msg in
+            CrashLog.write("JS: \(msg)")
+            self?.addDiag("JS: \(msg)")
+        }
+    }
+
+    /// Add a diagnostic line visible on the "Waiting for video..." overlay
+    private func addDiag(_ line: String) {
+        let entry = "\(Self.diagDateFmt.string(from: Date())) \(line)"
+        if Thread.isMainThread {
+            diagnosticLines.append(entry)
+            if diagnosticLines.count > 200 { diagnosticLines.removeFirst() }
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.diagnosticLines.append(entry)
+                if (self?.diagnosticLines.count ?? 0) > 200 { self?.diagnosticLines.removeFirst() }
+            }
+        }
+    }
+    private static let diagDateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
 
     func setup(mtkView: MTKView) {
         NSLog("[viewer] setup() called, creating decoders and renderer")
+        // Set up networkManager callbacks ONCE. Must happen here (not init)
+        // because @StateObject creates throwaway sessions during re-renders.
+        configureCallbacks()
         // Reset static counters so FIRST VIDEO DATA logs each time
         IOSViewerSession.routeCount = 0
-        IOSViewerSession.routeBytes = 0
         // Stop any existing decoders to prevent dangling Unmanaged pointers
         // in VT decompression callbacks if setup() is called more than once
         h264Decoder?.stop()
@@ -88,9 +228,12 @@ final class IOSViewerSession: ObservableObject {
         // Capture the renderer directly to avoid accessing @MainActor-isolated
         // `self.renderer` from VideoToolbox's decoder thread (data race).
         let metalRenderer = renderer
+        let sbLayer = sampleBufferDisplayLayer
         let onDecoded: (CVPixelBuffer, CMTime) -> Void = { [weak self] pixelBuffer, _ in
             // renderer.display() is thread-safe (NSLock), safe from VT thread
             metalRenderer?.display(pixelBuffer: pixelBuffer)
+            // Feed PiP sample buffer layer (also thread-safe)
+            self?.enqueuePiPFrame(pixelBuffer)
             let w = CVPixelBufferGetWidth(pixelBuffer)
             let h = CVPixelBufferGetHeight(pixelBuffer)
             DispatchQueue.main.async { [weak self] in
@@ -105,45 +248,80 @@ final class IOSViewerSession: ObservableObject {
                     self.updateViewport()
                 }
                 self.frameCountInInterval += 1
+                self.recordFrameArrival()
             }
         }
 
         h264.onDecodedFrame = onDecoded
         h265.onDecodedFrame = onDecoded
+
+        h265.onCodecFallbackNeeded = { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.requestCodecFallback()
+            }
+        }
+
         h264Decoder = h264
         h265Decoder = h265
 
-        networkManager.onJSLog = { msg in
-            CrashLog.write("JS: \(msg)")
+        addDiag("setup: decoders+renderer created")
+
+        // Direct video callback on the bridge — bypasses NetworkManager's @MainActor
+        // isolation entirely. In Swift 6, NetworkManager.onVideoData goes through actor
+        // hopping which silently drops/delays video data. This callback fires directly
+        // on BareKit's IPC thread. Decoders are thread-safe (own serial queues).
+        //
+        // IMPORTANT: This closure must be minimal — no mutable captured vars, no file I/O,
+        // no complex diagnostics. It runs on BareKit's thread pool.
+        networkManager.setDirectVideoCallback { [weak self] data in
+            guard data.count >= 5 else { return }
+            self?.addReceivedBytes(data.count)
+            IOSViewerSession.routeCount += 1
+            // Feed both decoders — each ignores NALs it doesn't understand.
+            // This avoids codec detection logic on BareKit's thread.
+            h264.decode(annexBData: data)
+            h265.decode(annexBData: data)
         }
 
-        networkManager.onVideoData = { [weak self] data in
-            // Log first video data arrival for diagnostics
-            if IOSViewerSession.routeCount == 0 {
-                let availMB = os_proc_available_memory() / 1_048_576
-                CrashLog.write("FIRST VIDEO DATA: len=\(data.count) mem=\(availMB)MB")
-            }
-            self?.routeVideoData(data)
+        // Set up audio playback
+        // NOTE: AVAudioSession is configured once at app launch (PeariscopeAppDelegate).
+        // AudioPlayer.start() no longer calls setCategory/setActive, so it's safe
+        // to call synchronously here without deadlocking the main thread.
+        let player = AudioPlayer(sampleRate: 48000, channels: 2)
+        do {
+            try player.start()
+            audioPlayer = player
+            NSLog("[viewer] Audio player started")
+        } catch {
+            NSLog("[viewer] Audio player failed: %@", error.localizedDescription)
         }
-
-        networkManager.onControlData = { [weak self] data in
-            guard let self else { return }
-            if let msg = try? Peariscope_ControlMessage(serializedBytes: data) {
-                self.handleControlMessage(msg)
-            }
-        }
-
-        // [6] Auto-reconnect: listen for peer disconnect
-        networkManager.onPeerDisconnected = { [weak self] peer in
-            guard let self else { return }
-            Task { @MainActor in
-                self.attemptReconnect()
-            }
+        networkManager.onAudioData = { [weak player, weak self] data in
+            self?.addReceivedBytes(data.count)
+            player?.decodeAndPlay(aacData: data)
         }
 
         isActive = true
+        addDiag("peers: \(networkManager.connectedPeers.count) connected=\(networkManager.isConnected)")
         requestIDR()
-        CrashLog.write("setup() complete: isActive=true, h264=\(h264Decoder != nil) h265=\(h265Decoder != nil) renderer=\(renderer != nil) onVideoData=\(networkManager.onVideoData != nil)")
+        addDiag("requestIDR sent")
+        CrashLog.write("setup() complete")
+
+        // Retry IDR request after a short delay — the initial requestIDR() may fire
+        // before the peer connection is fully established, especially on first connect
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self, self.isActive, !self.hasReceivedFirstFrame else { return }
+            self.addDiag("retry IDR: peers=\(self.networkManager.connectedPeers.count) video=#\(IOSViewerSession.routeCount)")
+                self.requestIDR()
+        }
+        // Additional retries at 3s and 5s
+        for delay in [3.0, 5.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.isActive, !self.hasReceivedFirstFrame else { return }
+                self.addDiag("retry IDR @\(Int(delay))s: peers=\(self.networkManager.connectedPeers.count) video=#\(IOSViewerSession.routeCount)")
+                self.requestIDR()
+            }
+        }
 
         fpsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -152,18 +330,16 @@ final class IOSViewerSession: ObservableObject {
                 self.fps = Double(frames)
                 self.frameCountInInterval = 0
                 self.latencyMs = self.latencyTracker.averageLatencyMs
+                self.bandwidthBytesPerSec = self.resetReceivedBytes()
                 // Heartbeat to persistent crash log — if the app dies,
                 // the last heartbeat tells us exactly when and memory state
                 let availMB = os_proc_available_memory() / 1_048_576
                 CrashLog.write("heartbeat: fps=\(frames) mem=\(availMB)MB tex=\(self.textureWidth)x\(self.textureHeight)")
-                // Extended diagnostics: decoder, renderer, and IPC stats
-                if let h265Diag = self.h265Decoder?.diagnosticSummary() {
-                    CrashLog.write("  h265: \(h265Diag)")
+                self.drainDiagQueue()
+                if !self.hasReceivedFirstFrame {
+                    self.addDiag("hb: fps=\(frames) video=#\(IOSViewerSession.routeCount) peers=\(self.networkManager.connectedPeers.count) mem=\(availMB)MB h264=\(self.h264Decoder?.hasSession ?? false)")
+                    self.addDiag("bridge: \(self.networkManager.bridgeDiagnosticSummary())")
                 }
-                if let rendererDiag = self.renderer?.diagnosticSummary() {
-                    CrashLog.write("  renderer: \(rendererDiag)")
-                }
-                CrashLog.write("  bridge: \(self.networkManager.bridgeDiagnosticSummary())")
                 if availMB > 0 && availMB < 100 {
                     CrashLog.write("LOW MEMORY: \(availMB)MB — jetsam kill imminent")
                 }
@@ -174,6 +350,22 @@ final class IOSViewerSession: ObservableObject {
                     CrashLog.write("TERMINATING WORKLET (heartbeat): mem=\(availMB)MB — killing V8, will reconnect")
                     self.handleMemoryPressure()
                 }
+                // Stale worklet detection — if IPC counters haven't changed
+                // for 30+ seconds while active, the worklet is stuck in a CPU spin loop.
+                // Restart it to recover.
+                let bridgeDiag = self.networkManager.bridgeDiagnosticSummary()
+                if bridgeDiag == self.lastBridgeDiag && self.networkManager.isWorkletAlive {
+                    self.bridgeStaleCount += 1
+                    if self.bridgeStaleCount >= 30 {
+                        CrashLog.write("STALE WORKLET: IPC counters unchanged for \(self.bridgeStaleCount)s — restarting")
+                        self.bridgeStaleCount = 0
+                        self.restartStaleWorklet()
+                    }
+                } else {
+                    self.bridgeStaleCount = 0
+                }
+                self.lastBridgeDiag = bridgeDiag
+
                 // If no frames decoded for 2+ seconds, re-request keyframe
                 if frames == 0 && self.isActive && self.pendingPin == nil {
                     self.idrRetryCount += 1
@@ -301,6 +493,21 @@ final class IOSViewerSession: ObservableObject {
         }
     }
 
+    /// Restart a worklet that's stuck in a CPU spin loop.
+    /// Terminates and restarts without exiting the viewer.
+    private func restartStaleWorklet() {
+        CrashLog.write("RESTARTING STALE WORKLET")
+        networkManager.shutdown()
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            guard self.isActive else { return }
+            if !self.networkManager.isWorkletAlive {
+                try? await self.networkManager.startRuntime()
+            }
+            self.attemptReconnect()
+        }
+    }
+
     // [6] Handle memory pressure — terminate worklet but stay in viewer, reconnect
     private func handleMemoryPressure() {
         guard !workletSuspendedForMemory else { return }
@@ -308,12 +515,16 @@ final class IOSViewerSession: ObservableObject {
         // Kill the worklet to free V8/libuv memory, but DON'T exit the viewer.
         // Clear video/control callbacks to stop data flow, but keep onPeerDisconnected
         // so we detect when the connection is fully dead.
+        networkManager.setDirectVideoCallback(nil)
         networkManager.onVideoData = nil
-        networkManager.onControlData = nil
+        networkManager.onAudioData = nil
+        // Keep onControlData alive — PIN challenges need to work after reconnect
         h264Decoder?.stop()
         h264Decoder = nil
         h265Decoder?.stop()
         h265Decoder = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
         networkManager.shutdown()
         networkManager.connectedPeers.removeAll()
         networkManager.isConnected = false
@@ -405,6 +616,30 @@ final class IOSViewerSession: ObservableObject {
     }
 
     // [14] Send quality report to host for adaptive bitrate
+    /// Record a frame arrival for jitter calculation. Called from decode callback.
+    private func recordFrameArrival() {
+        let now = CFAbsoluteTimeGetCurrent()
+        jitterLock.lock()
+        if lastFrameArrival > 0 {
+            let interval = (now - lastFrameArrival) * 1000  // ms
+            frameIntervals.append(interval)
+            if frameIntervals.count > 60 { frameIntervals.removeFirst() }
+        }
+        lastFrameArrival = now
+        jitterLock.unlock()
+    }
+
+    /// Compute inter-frame arrival jitter (standard deviation of intervals)
+    private func computeJitterMs() -> Double {
+        jitterLock.lock()
+        let intervals = frameIntervals
+        jitterLock.unlock()
+        guard intervals.count > 1 else { return 0 }
+        let mean = intervals.reduce(0, +) / Double(intervals.count)
+        let variance = intervals.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(intervals.count)
+        return sqrt(variance)
+    }
+
     private func sendQualityReport() {
         var report = Peariscope_QualityReport()
         report.fps = UInt32(fps)
@@ -414,6 +649,9 @@ final class IOSViewerSession: ObservableObject {
         let screen = UIScreen.main.nativeBounds
         report.screenWidth = UInt32(screen.width)
         report.screenHeight = UInt32(screen.height)
+        // Throughput: actual bytes received converted to kbps
+        report.receivedKbps = UInt32(bandwidthBytesPerSec * 8 / 1000)
+        report.jitterMs = Float(computeJitterMs())
 
         var control = Peariscope_ControlMessage()
         control.qualityReport = report
@@ -421,6 +659,78 @@ final class IOSViewerSession: ObservableObject {
         guard let data = try? control.serializedData() else { return }
         for peer in networkManager.connectedPeers {
             try? networkManager.sendControlData(data, streamId: peer.streamId)
+        }
+    }
+
+    // MARK: - Picture-in-Picture
+
+    /// Set up PiP with an AVSampleBufferDisplayLayer. Call from the UIView that hosts the layer.
+    func setupPiP(displayLayer: AVSampleBufferDisplayLayer) {
+        sampleBufferDisplayLayer = displayLayer
+
+        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+            NSLog("[pip] PiP not supported on this device")
+            return
+        }
+
+        let contentSource = AVPictureInPictureController.ContentSource(
+            sampleBufferDisplayLayer: displayLayer,
+            playbackDelegate: PiPPlaybackDelegate.shared
+        )
+        let controller = AVPictureInPictureController(contentSource: contentSource)
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        // Hide playback controls — this is a live stream, not playable content
+        controller.setValue(1, forKey: "controlsStyle")
+        pipController = controller
+        NSLog("[pip] PiP controller created")
+    }
+
+    /// Enqueue a decoded pixel buffer to the PiP sample buffer display layer
+    private func enqueuePiPFrame(_ pixelBuffer: CVPixelBuffer) {
+        guard let layer = sampleBufferDisplayLayer else { return }
+
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+
+        // Cache format description — only recreate when dimensions change
+        if cachedFormatDescription == nil ||
+            CMVideoFormatDescriptionGetDimensions(cachedFormatDescription!).width != Int32(width) ||
+            CMVideoFormatDescriptionGetDimensions(cachedFormatDescription!).height != Int32(height) {
+            var formatDesc: CMFormatDescription?
+            let status = CMVideoFormatDescriptionCreateForImageBuffer(
+                allocator: kCFAllocatorDefault,
+                imageBuffer: pixelBuffer,
+                formatDescriptionOut: &formatDesc
+            )
+            if status == noErr {
+                cachedFormatDescription = formatDesc
+            }
+        }
+
+        guard let formatDesc = cachedFormatDescription else { return }
+
+        // Use host time for presentation — keeps PiP in sync
+        let now = CMClockGetTime(CMClockGetHostTimeClock())
+        var timingInfo = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: 60),
+            presentationTimeStamp: now,
+            decodeTimeStamp: .invalid
+        )
+
+        var sampleBuffer: CMSampleBuffer?
+        let status = CMSampleBufferCreateForImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            dataReady: true,
+            makeDataReadyCallback: nil,
+            refcon: nil,
+            formatDescription: formatDesc,
+            sampleTiming: &timingInfo,
+            sampleBufferOut: &sampleBuffer
+        )
+
+        if status == noErr, let sb = sampleBuffer {
+            layer.enqueue(sb)
         }
     }
 
@@ -445,7 +755,9 @@ final class IOSViewerSession: ObservableObject {
             thermalObserver = nil
         }
         // Clear callbacks first to stop new data flowing in
+        networkManager.setDirectVideoCallback(nil)
         networkManager.onVideoData = nil
+        networkManager.onAudioData = nil
         networkManager.onControlData = nil
         networkManager.onPeerDisconnected = nil
         // Stop decoders first — this waits for pending VT frames, ensuring
@@ -454,6 +766,13 @@ final class IOSViewerSession: ObservableObject {
         h264Decoder = nil
         h265Decoder?.stop()
         h265Decoder = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
+        // Stop PiP
+        pipController?.stopPictureInPicture()
+        pipController = nil
+        sampleBufferDisplayLayer = nil
+        cachedFormatDescription = nil
         // Now safe to stop and release renderer
         renderer?.stop()
         renderer = nil
@@ -465,56 +784,30 @@ final class IOSViewerSession: ObservableObject {
     }
 
     private static var routeCount = 0
-    private static var routeBytes = 0
-    private func routeVideoData(_ data: Data) {
-        // Don't decode video until PIN is verified
-        if pendingPin != nil { return }
-        IOSViewerSession.routeCount += 1
-        IOSViewerSession.routeBytes += data.count
-        let count = IOSViewerSession.routeCount
-        if count <= 10 || count % 300 == 0 {
-            let availMB = os_proc_available_memory() / 1_048_576
-            CrashLog.write("routeVideoData #\(count): len=\(data.count) totalBytes=\(IOSViewerSession.routeBytes) h265=\(detectedH265) mem=\(availMB)MB")
+
+    // Thread-safe diagnostic queue — allows background threads to post
+    // diagnostics without needing a weak self reference to @MainActor session.
+    // The heartbeat drains this into diagnosticLines.
+    private static let diagQueueLock = NSLock()
+    private static var diagQueue: [String] = []
+    static func queueDiag(_ msg: String) {
+        let entry = "\(diagDateFmt.string(from: Date())) \(msg)"
+        diagQueueLock.lock()
+        diagQueue.append(entry)
+        diagQueueLock.unlock()
+    }
+    private func drainDiagQueue() {
+        Self.diagQueueLock.lock()
+        let msgs = Self.diagQueue
+        Self.diagQueue.removeAll()
+        Self.diagQueueLock.unlock()
+        for msg in msgs {
+            diagnosticLines.append(msg)
         }
-        guard data.count >= 5 else { return }
-
-        if detectedH265 {
-            if count <= 5 || count % 300 == 0 {
-                NSLog("[video] h265 frame len=%d count=%d", data.count, count)
-            }
-            h265Decoder?.decode(annexBData: data)
-            return
-        }
-
-        // Detect codec from first start code without copying entire frame
-        data.withUnsafeBytes { rawBuf in
-            guard let bytes = rawBuf.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
-            let len = rawBuf.count
-            var i = 0
-            while i + 4 < len {
-                if bytes[i] == 0 && bytes[i+1] == 0 && bytes[i+2] == 0 && bytes[i+3] == 1 {
-                    let nalByte = bytes[i+4]
-                    let h265Type = (nalByte >> 1) & 0x3F
-
-                    if count <= 5 {
-                        NSLog("[video] NAL detect: byte=0x%02x h265Type=%d count=%d len=%d",
-                              nalByte, h265Type, count, data.count)
-                    }
-
-                    if h265Type >= 32 && h265Type <= 34 {
-                        detectedH265 = true
-                        NSLog("[video] Detected H.265! VPS/SPS/PPS found")
-                        h265Decoder?.decode(annexBData: data)
-                        return
-                    }
-                    break
-                }
-                i += 1
-            }
-            h264Decoder?.decode(annexBData: data)
+        if diagnosticLines.count > 200 {
+            diagnosticLines.removeFirst(diagnosticLines.count - 200)
         }
     }
-
     private func handleControlMessage(_ msg: Peariscope_ControlMessage) {
         switch msg.msg {
         case .codecNegotiation(let negotiation):
@@ -528,13 +821,18 @@ final class IOSViewerSession: ObservableObject {
         case .frameTimestamp(let ts):
             _ = latencyTracker.measureFromTimestamp(ts.captureTimeMs)
         case .clipboard(let clipboard):
-            networkManager.clipboardSharing.applyRemoteClipboard(clipboard.text)
+            if !clipboard.imagePng.isEmpty {
+                networkManager.clipboardSharing.applyRemoteImage(clipboard.imagePng)
+            } else {
+                networkManager.clipboardSharing.applyRemoteClipboard(clipboard.text)
+            }
         case .displayList(let list):
             availableDisplays = list.displays
             if let active = list.displays.first(where: { $0.isActive }) {
                 activeDisplayId = active.displayID
             }
         case .peerChallenge(let challenge):
+            NSLog("[viewer] PIN CHALLENGE received — showing PIN entry, pendingPin will be set to 'pending'")
             CrashLog.write("PIN CHALLENGE received — showing PIN entry")
             pendingPin = "pending"
             pinEntryText = ""
@@ -543,32 +841,67 @@ final class IOSViewerSession: ObservableObject {
                 hostFingerprint = PeerFingerprint.format(hexKey)
             }
         case .peerChallengeResponse(let response):
-            CrashLog.write("PIN RESPONSE from host: accepted=\(response.accepted)")
             if response.accepted {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
                 pendingPin = nil
                 hostFingerprint = nil
+                IOSViewerSession.routeCount = 0
                 requestIDR()
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
             }
+        case .ping(let ping):
+            // Echo ping back as pong for host RTT measurement
+            var pong = Peariscope_Pong()
+            pong.timestampMs = ping.timestampMs
+            var control = Peariscope_ControlMessage()
+            control.pong = pong
+            if let data = try? control.serializedData() {
+                for peer in networkManager.connectedPeers {
+                    try? networkManager.sendControlData(data, streamId: peer.streamId)
+                }
+            }
+        case .pong:
+            break  // Viewer doesn't use pongs
         case .cursorPosition(let pos):
-            self.remoteCursorX = pos.x
-            self.remoteCursorY = pos.y
+            // Suppress host cursor updates while user is touching or briefly after lift-off,
+            // otherwise queued host events move the cursor after the user lifts their finger
+            let elapsed = CFAbsoluteTimeGetCurrent() - lastTouchEndTime
+            if !isTouching && elapsed > 0.5 {
+                self.remoteCursorX = pos.x
+                self.remoteCursorY = pos.y
+                // Sync local cursor tracking so trackpad-mode clicks
+                // don't jump to a stale position
+                self.cursorX = pos.x
+                self.cursorY = pos.y
+            }
         default:
             break
         }
     }
 
     func submitPin() {
-        CrashLog.write("submitPin(): sending PIN '\(pinEntryText)' to \(networkManager.connectedPeers.count) peers")
         var response = Peariscope_PeerChallengeResponse()
         response.pin = pinEntryText
         response.accepted = true
         var control = Peariscope_ControlMessage()
         control.peerChallengeResponse = response
-        guard let data = try? control.serializedData() else { return }
-        for peer in networkManager.connectedPeers {
+        guard let data = try? control.serializedData() else {
+            NSLog("[pin] submitPin: failed to serialize response")
+            return
+        }
+        let peers = networkManager.connectedPeers
+        NSLog("[pin] submitPin: peers=\(peers.count) pinLen=\(pinEntryText.count) dataLen=\(data.count)")
+        for peer in peers {
+            NSLog("[pin] sending to peer sid=\(peer.streamId) id=\(peer.id.prefix(16))")
             try? networkManager.sendControlData(data, streamId: peer.streamId)
         }
-        pendingPin = nil
+        if peers.isEmpty {
+            CrashLog.write("submitPin: no peers to send to")
+            pendingPin = nil  // No peers — clear overlay so user isn't stuck
+        }
+        // Don't clear pendingPin here — wait for host's PeerChallengeResponse(accepted: true)
+        // to confirm the PIN was correct. The overlay stays until confirmation arrives.
     }
 
     func cancelPinChallenge() {
@@ -604,6 +937,21 @@ final class IOSViewerSession: ObservableObject {
         for peer in networkManager.connectedPeers {
             try? networkManager.sendControlData(data, streamId: peer.streamId)
         }
+    }
+
+    /// Request the host to switch from H.265 to H.264 due to decode failures
+    private func requestCodecFallback() {
+        CrashLog.write("CODEC FALLBACK: H.265 decode failing, requesting H.264")
+        var negotiation = Peariscope_CodecNegotiation()
+        negotiation.supportedCodecs = [.h264]
+        negotiation.selectedCodec = .h264
+        var control = Peariscope_ControlMessage()
+        control.codecNegotiation = negotiation
+        guard let data = try? control.serializedData() else { return }
+        for peer in networkManager.connectedPeers {
+            try? networkManager.sendControlData(data, streamId: peer.streamId)
+        }
+        detectedH265 = false
     }
 
     func updateViewport() {
@@ -675,9 +1023,9 @@ final class IOSViewerSession: ObservableObject {
     func typeString(_ text: String) {
         for char in text {
             if char == "\n" || char == "\r" {
-                sendVirtualKey(keycode: 36) // Return
+                sendVirtualKey(keycode: VK.return.rawValue)
             } else if char == "\t" {
-                sendVirtualKey(keycode: 48) // Tab
+                sendVirtualKey(keycode: VK.tab.rawValue)
             } else {
                 var keyEvent = Peariscope_KeyEvent()
                 keyEvent.keycode = UInt32(char.unicodeScalars.first?.value ?? 0)
@@ -693,13 +1041,14 @@ final class IOSViewerSession: ObservableObject {
             }
         }
         // Send Enter after the text
-        sendVirtualKey(keycode: 36)
+        sendVirtualKey(keycode: VK.return.rawValue)
     }
 
-    func sendVirtualKey(keycode: UInt32) {
+    func sendVirtualKey(keycode: UInt32, modifiers: UInt32 = 0) {
         var keyEvent = Peariscope_KeyEvent()
         keyEvent.keycode = keycode
-        keyEvent.modifiers = 0x80000000
+        // 0x80000000 marker tells host this is a raw CGKeyCode, not Unicode
+        keyEvent.modifiers = 0x80000000 | modifiers
         keyEvent.pressed = true
         var down = Peariscope_InputEvent()
         down.key = keyEvent
@@ -711,11 +1060,46 @@ final class IOSViewerSession: ObservableObject {
         sendInput(up)
     }
 
+    /// Send a key combo like Cmd+C: modifier keys press, key press, key release, modifier keys release
+    func sendKeyCombo(keycode: UInt32, modifiers: InputModifiers) {
+        sendVirtualKey(keycode: keycode, modifiers: modifiers.rawValue)
+    }
+
     func sendInput(_ event: Peariscope_InputEvent) {
         guard let data = encodeInputEvent(event) else { return }
         for peer in networkManager.connectedPeers {
             try? networkManager.sendInputData(data, streamId: peer.streamId)
         }
+    }
+}
+
+// MARK: - PiP Playback Delegate
+
+/// Singleton delegate for AVPictureInPictureController — returns live stream metadata.
+/// Must be a class (not struct) conforming to NSObjectProtocol.
+final class PiPPlaybackDelegate: NSObject, AVPictureInPictureSampleBufferPlaybackDelegate, @unchecked Sendable {
+    nonisolated(unsafe) static let shared = PiPPlaybackDelegate()
+    private override init() { super.init() }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
+        // Live stream — always playing, nothing to toggle
+    }
+
+    func pictureInPictureControllerTimeRangeForPlayback(_ controller: AVPictureInPictureController) -> CMTimeRange {
+        // Return infinite duration to indicate live content
+        return CMTimeRange(start: .zero, duration: .positiveInfinity)
+    }
+
+    func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool {
+        return false
+    }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, didTransitionToRenderSize newRenderSize: CMVideoDimensions) {
+        // Could notify host to adjust resolution for PiP window size
+    }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, skipByInterval skipInterval: CMTime, completion: @escaping () -> Void) {
+        completion() // No seeking in live content
     }
 }
 #endif

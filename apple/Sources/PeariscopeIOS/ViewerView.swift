@@ -3,6 +3,7 @@ import SwiftUI
 import MetalKit
 import UIKit
 import PeariscopeCore
+import AVKit
 
 // MARK: - Viewer View
 
@@ -14,6 +15,8 @@ struct IOSViewerView: View {
     @State private var controlsTask: Task<Void, Never>?
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
+    @State private var showShortcuts = false
+    @State private var activeModifiers: InputModifiers = []
 
     init(networkManager: NetworkManager, isInViewerMode: Binding<Bool>) {
         self.networkManager = networkManager
@@ -26,6 +29,12 @@ struct IOSViewerView: View {
             // Desktop view area — ends above the input bar
             ZStack {
                 Color.black
+
+                // Hidden sample buffer layer for PiP — must be in the view hierarchy
+                PiPLayerRepresentable(viewerSession: viewerSession)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .allowsHitTesting(false)
 
                 IOSMetalViewRepresentable(viewerSession: viewerSession)
 
@@ -51,6 +60,11 @@ struct IOSViewerView: View {
                                     Text("\(Int(viewerSession.latencyMs))ms")
                                         .font(.system(size: 11, design: .monospaced))
                                         .foregroundColor(qualityColor)
+                                }
+                                if !viewerSession.bandwidthFormatted.isEmpty {
+                                    Text(viewerSession.bandwidthFormatted)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(.secondary)
                                 }
                             }
                             .padding(.horizontal, 10)
@@ -85,104 +99,35 @@ struct IOSViewerView: View {
             }
             .ignoresSafeArea(edges: .top)
 
-            // Bottom input bar — always visible, desktop ends above this
-            HStack(spacing: 6) {
-                Button {
-                    viewerSession.toggleKeyboard()
-                } label: {
-                    Image(systemName: "keyboard")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 32, height: 32)
-                        .background(.white.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-
-                TextField("Enter text...", text: $inputText)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white)
-                    .tint(.pearGreen)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(.white.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .focused($isInputFocused)
-                    .submitLabel(.send)
-                    .onSubmit {
-                        sendInputText()
-                    }
-
-                Button {
-                    sendInputText()
-                } label: {
-                    Image(systemName: "return")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        .background(Color.pearGreen)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-
-                Button {
-                    viewerSession.toggleMouseMode()
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                } label: {
-                    Image(systemName: viewerSession.isTrackpadMode ? "hand.point.up.left" : "computermouse")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 32, height: 32)
-                        .background(.white.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-
-                if viewerSession.availableDisplays.count > 1 {
-                    Menu {
-                        ForEach(viewerSession.availableDisplays, id: \.displayID) { display in
-                            Button {
-                                viewerSession.switchDisplay(to: display.displayID)
-                            } label: {
-                                HStack {
-                                    Text(display.name.isEmpty ? "\(display.width)x\(display.height)" : display.name)
-                                    if display.displayID == viewerSession.activeDisplayId {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "display.2")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .frame(width: 32, height: 32)
-                            .background(.white.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.ultraThinMaterial)
+            bottomInputArea
         }
         .background(Color.black.ignoresSafeArea())
         .overlay {
             // Loading overlay — only before first frame
             if viewerSession.isActive && !viewerSession.hasReceivedFirstFrame && viewerSession.pendingPin == nil {
                 Color.black.ignoresSafeArea()
-                TimelineView(.animation) { timeline in
-                    let t = timeline.date.timeIntervalSinceReferenceDate
-                    let squish = sin(t * 2 * .pi / 1.4)
-                    let scaleX = 1.0 + 0.08 * squish
-                    let scaleY = 1.0 - 0.08 * squish
-                    let pulse = (1 + cos(t * 2 * .pi / 2.0)) / 2
-                    let bounce = 1.0 + 0.03 * sin(t * 2 * .pi / 0.7)
+                VStack(spacing: 16) {
+                    Text("Waiting for video...")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .padding(.top, 60)
 
-                    VStack(spacing: 16) {
+                    Spacer()
+
+                    TimelineView(.animation) { timeline in
+                        let t = timeline.date.timeIntervalSinceReferenceDate
+                        let squish = sin(t * 2 * .pi / 1.4)
+                        let scaleX = 1.0 + 0.08 * squish
+                        let scaleY = 1.0 - 0.08 * squish
+                        let pulse = (1 + cos(t * 2 * .pi / 2.0)) / 2
+                        let bounce = 1.0 + 0.03 * sin(t * 2 * .pi / 0.7)
+
                         ZStack {
                             Circle()
-                                .stroke(Color.pearGreen.opacity(0.15), lineWidth: 2)
+                                .stroke(Color.pearGreen.opacity(0.5), lineWidth: 2.5)
                                 .frame(width: 100, height: 100)
                                 .scaleEffect(1.0 + 0.4 * (1 - pulse))
-                                .opacity(pulse * 0.5)
+                                .opacity(0.3 + pulse * 0.5)
 
                             Image("AppLogo")
                                 .resizable()
@@ -190,24 +135,44 @@ struct IOSViewerView: View {
                                 .frame(width: 52, height: 52)
                                 .scaleEffect(x: scaleX * bounce, y: scaleY * bounce)
                         }
-
-                        Text("Waiting for video...")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.6))
-
-                        Button {
-                            viewerSession.disconnect()
-                            isInViewerMode = false
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.6))
-                                .frame(width: 40, height: 40)
-                                .background(Color.white.opacity(0.1))
-                                .clipShape(Circle())
-                        }
-                        .padding(.top, 8)
                     }
+
+                    Spacer()
+
+                    // Diagnostic log for debugging video decode issues
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 2) {
+                                ForEach(Array(viewerSession.diagnosticLines.suffix(30).enumerated()), id: \.offset) { i, line in
+                                    Text(line)
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                        .id(i)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                        }
+                        .frame(maxHeight: 160)
+                        .onChange(of: viewerSession.diagnosticLines.count) {
+                            if let last = viewerSession.diagnosticLines.suffix(30).indices.last {
+                                proxy.scrollTo(last - viewerSession.diagnosticLines.suffix(30).startIndex, anchor: .bottom)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 8)
+
+                    Button {
+                        viewerSession.disconnect()
+                        isInViewerMode = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.6))
+                            .frame(width: 40, height: 40)
+                            .background(Color.white.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .padding(.bottom, 40)
                 }
             }
         }
@@ -241,8 +206,20 @@ struct IOSViewerView: View {
                         .padding(.vertical, 8)
                         .background(Color.white.opacity(0.1))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .onChange(of: viewerSession.pinEntryText) {
+                            // Vary haptic intensity per digit — like DTMF tones on old phones
+                            if let lastChar = viewerSession.pinEntryText.last,
+                               let digit = lastChar.wholeNumberValue {
+                                let intensity = 0.3 + Double(digit) * 0.07  // 0→0.30, 9→0.93
+                                UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: intensity)
+                            } else if viewerSession.pinEntryText.isEmpty {
+                                // Deletion
+                                UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.4)
+                            }
+                        }
                     HStack(spacing: 16) {
                         Button {
+                            UINotificationFeedbackGenerator().notificationOccurred(.warning)
                             viewerSession.cancelPinChallenge()
                         } label: {
                             Text("Cancel")
@@ -254,6 +231,7 @@ struct IOSViewerView: View {
                                 .clipShape(Capsule())
                         }
                         Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             viewerSession.submitPin()
                         } label: {
                             Text("Connect")
@@ -321,6 +299,7 @@ struct IOSViewerView: View {
         .navigationBarHidden(true)
         .statusBarHidden(true)
         .onAppear {
+            CrashLog.write("IOSViewerView.onAppear — isConnected=\(networkManager.isConnected) peers=\(networkManager.connectedPeers.count)")
             scheduleAutoHide()
             let binding = $isInViewerMode
             viewerSession.onExitViewer = {
@@ -341,11 +320,11 @@ struct IOSViewerView: View {
         return .red
     }
 
-    // [1] Auto-hide toolbar after 3 seconds (don't hide while typing)
+    // [1] Auto-hide toolbar after 6 seconds (don't hide while typing)
     private func scheduleAutoHide() {
         controlsTask?.cancel()
         controlsTask = Task {
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: .seconds(6))
             guard !Task.isCancelled else { return }
             if isInputFocused { return } // Don't hide while typing
             withAnimation(.easeOut(duration: 0.3)) {
@@ -365,12 +344,362 @@ struct IOSViewerView: View {
 
     private func sendInputText() {
         if inputText.isEmpty {
-            viewerSession.sendVirtualKey(keycode: 36)
+            viewerSession.sendVirtualKey(keycode: VK.return.rawValue)
         } else {
-            viewerSession.typeString(inputText)
+            // If modifiers are active, send each char as CGKeyCode with modifiers
+            if !activeModifiers.isEmpty {
+                for char in inputText.lowercased() {
+                    if let keycode = Self.charToKeysym[char] {
+                        viewerSession.sendKeyCombo(keycode: keycode, modifiers: activeModifiers)
+                    }
+                }
+                activeModifiers = []
+            } else {
+                viewerSession.typeString(inputText)
+            }
             inputText = ""
         }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    // Map characters to X11 keysyms for modifier combos (lowercase ASCII = keysym)
+    private static let charToKeysym: [Character: UInt32] = {
+        var map: [Character: UInt32] = [:]
+        // a-z: X11 keysym = Unicode code point
+        for c in "abcdefghijklmnopqrstuvwxyz" {
+            map[c] = UInt32(c.asciiValue!)
+        }
+        // 0-9: X11 keysym = Unicode code point
+        for c in "0123456789" {
+            map[c] = UInt32(c.asciiValue!)
+        }
+        // Symbols
+        for c: Character in ["-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "`", " "] {
+            map[c] = UInt32(c.asciiValue!)
+        }
+        return map
+    }()
+
+    /// Send a shortcut key combo, applying any active sticky modifiers too
+    private func sendShortcut(keycode: UInt32, modifiers: InputModifiers = []) {
+        let combined = modifiers.union(activeModifiers)
+        viewerSession.sendKeyCombo(keycode: keycode, modifiers: combined)
+        activeModifiers = []
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    // MARK: - Bottom Input Area
+
+    private var bottomInputArea: some View {
+        VStack(spacing: 0) {
+            if showShortcuts {
+                shortcutsPanel
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if isInputFocused || showShortcuts {
+                modifierKeysRow
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            mainInputBar
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    private var mainInputBar: some View {
+        HStack(spacing: 6) {
+            Button {
+                viewerSession.toggleKeyboard()
+            } label: {
+                Image(systemName: "keyboard")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 32, height: 32)
+                    .background(.white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showShortcuts.toggle()
+                }
+            } label: {
+                Image(systemName: "command.square")
+                    .font(.system(size: 14))
+                    .foregroundStyle(showShortcuts ? Color.pearGreen : .white.opacity(0.85))
+                    .frame(width: 32, height: 32)
+                    .background(showShortcuts ? Color.pearGreen.opacity(0.2) : .white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            TextField("Type here...", text: $inputText)
+                .font(.system(size: 13))
+                .foregroundStyle(.white)
+                .tint(.pearGreen)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(.white.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .focused($isInputFocused)
+                .submitLabel(.send)
+                .onSubmit { sendInputText() }
+
+            Button { sendInputText() } label: {
+                Image(systemName: "return")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Color.pearGreen)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            Button {
+                viewerSession.toggleMouseMode()
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } label: {
+                Image(systemName: viewerSession.isTrackpadMode ? "hand.point.up.left" : "computermouse")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 32, height: 32)
+                    .background(.white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            displaySwitcher
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private var displaySwitcher: some View {
+        if viewerSession.availableDisplays.count > 1 {
+            Menu {
+                ForEach(viewerSession.availableDisplays, id: \.displayID) { display in
+                    Button {
+                        viewerSession.switchDisplay(to: display.displayID)
+                    } label: {
+                        HStack {
+                            Text(display.name.isEmpty ? "\(display.width)x\(display.height)" : display.name)
+                            if display.displayID == viewerSession.activeDisplayId {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "display.2")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 32, height: 32)
+                    .background(.white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    // MARK: - Modifier Keys Row
+
+    private var modifierKeysRow: some View {
+        HStack(spacing: 6) {
+            modifierPill("ctrl", flag: .control)
+            modifierPill("alt", flag: .alt)
+            modifierPill("shift", flag: .shift)
+            modifierPill("cmd", flag: .meta)
+
+            Spacer()
+
+            // Escape key
+            shortcutPill("esc") { sendShortcut(keycode: 53) }
+            // Tab key
+            shortcutPill("tab") { sendShortcut(keycode: 48) }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+    }
+
+    private func modifierPill(_ label: String, flag: InputModifiers) -> some View {
+        let isActive = activeModifiers.contains(flag)
+        return Button {
+            if isActive {
+                activeModifiers.remove(flag)
+            } else {
+                activeModifiers.insert(flag)
+            }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } label: {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(isActive ? .black : .white.opacity(0.85))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(isActive ? Color.pearGreen : .white.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    private func shortcutPill(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.white.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    // MARK: - Shortcuts Panel
+
+    // Platform-neutral virtual keycodes (X11 keysyms via VK enum in PeariscopeCore)
+    private static let keycodeC: UInt32 = VK.c.rawValue
+    private static let keycodeV: UInt32 = VK.v.rawValue
+    private static let keycodeX: UInt32 = VK.x.rawValue
+    private static let keycodeZ: UInt32 = VK.z.rawValue
+    private static let keycodeA: UInt32 = VK.a.rawValue
+    private static let keycodeF: UInt32 = VK.f.rawValue
+    private static let keycodeS: UInt32 = VK.s.rawValue
+    private static let keycodeW: UInt32 = VK.w.rawValue
+    private static let keycodeT: UInt32 = VK.t.rawValue
+    private static let keycodeQ: UInt32 = VK.q.rawValue
+    private static let keycodeN: UInt32 = VK.n.rawValue
+    private static let keycodeTab: UInt32 = VK.tab.rawValue
+    private static let keycodeEsc: UInt32 = VK.escape.rawValue
+    private static let keycodeDelete: UInt32 = VK.backspace.rawValue
+    private static let keycodeForwardDelete: UInt32 = VK.delete.rawValue
+    private static let keycodeReturn: UInt32 = VK.return.rawValue
+    private static let keycodeSpace: UInt32 = VK.space.rawValue
+    private static let keycodeUpArrow: UInt32 = VK.up.rawValue
+    private static let keycodeDownArrow: UInt32 = VK.down.rawValue
+    private static let keycodeLeftArrow: UInt32 = VK.left.rawValue
+    private static let keycodeRightArrow: UInt32 = VK.right.rawValue
+    private static let keycodeHome: UInt32 = VK.home.rawValue
+    private static let keycodeEnd: UInt32 = VK.end.rawValue
+    private static let keycodePageUp: UInt32 = VK.pageUp.rawValue
+    private static let keycodePageDown: UInt32 = VK.pageDown.rawValue
+    private static let keycodeF1: UInt32 = VK.f1.rawValue
+    private static let keycodeF2: UInt32 = VK.f2.rawValue
+    private static let keycodeF3: UInt32 = VK.f3.rawValue
+    private static let keycodeF4: UInt32 = VK.f4.rawValue
+    private static let keycodeF5: UInt32 = VK.f5.rawValue
+    private static let keycodeF6: UInt32 = VK.f6.rawValue
+    private static let keycodeF7: UInt32 = VK.f7.rawValue
+    private static let keycodeF8: UInt32 = VK.f8.rawValue
+    private static let keycodeF9: UInt32 = VK.f9.rawValue
+    private static let keycodeF10: UInt32 = VK.f10.rawValue
+    private static let keycodeF11: UInt32 = VK.f11.rawValue
+    private static let keycodeF12: UInt32 = VK.f12.rawValue
+
+    private var shortcutsPanel: some View {
+        VStack(spacing: 8) {
+            // Common shortcuts row
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    shortcutButton("Copy", icon: "doc.on.doc") {
+                        sendShortcut(keycode: Self.keycodeC, modifiers: .meta)
+                    }
+                    shortcutButton("Paste", icon: "doc.on.clipboard") {
+                        sendShortcut(keycode: Self.keycodeV, modifiers: .meta)
+                    }
+                    shortcutButton("Cut", icon: "scissors") {
+                        sendShortcut(keycode: Self.keycodeX, modifiers: .meta)
+                    }
+                    shortcutButton("Undo", icon: "arrow.uturn.backward") {
+                        sendShortcut(keycode: Self.keycodeZ, modifiers: .meta)
+                    }
+                    shortcutButton("Redo", icon: "arrow.uturn.forward") {
+                        sendShortcut(keycode: Self.keycodeZ, modifiers: [.meta, .shift])
+                    }
+                    shortcutButton("All", icon: "selection.pin.in.out") {
+                        sendShortcut(keycode: Self.keycodeA, modifiers: .meta)
+                    }
+                    shortcutButton("Find", icon: "magnifyingglass") {
+                        sendShortcut(keycode: Self.keycodeF, modifiers: .meta)
+                    }
+                    shortcutButton("Save", icon: "square.and.arrow.down") {
+                        sendShortcut(keycode: Self.keycodeS, modifiers: .meta)
+                    }
+                    shortcutButton("New Tab", icon: "plus.square") {
+                        sendShortcut(keycode: Self.keycodeT, modifiers: .meta)
+                    }
+                    shortcutButton("Close", icon: "xmark.square") {
+                        sendShortcut(keycode: Self.keycodeW, modifiers: .meta)
+                    }
+                    shortcutButton("Quit", icon: "power") {
+                        sendShortcut(keycode: Self.keycodeQ, modifiers: .meta)
+                    }
+                }
+                .padding(.horizontal, 10)
+            }
+
+            // Navigation keys row
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    // Arrow keys
+                    shortcutButton("←", icon: nil) { sendShortcut(keycode: Self.keycodeLeftArrow) }
+                    shortcutButton("↓", icon: nil) { sendShortcut(keycode: Self.keycodeDownArrow) }
+                    shortcutButton("↑", icon: nil) { sendShortcut(keycode: Self.keycodeUpArrow) }
+                    shortcutButton("→", icon: nil) { sendShortcut(keycode: Self.keycodeRightArrow) }
+
+                    Divider().frame(height: 20).background(.white.opacity(0.2))
+
+                    shortcutButton("Home", icon: nil) { sendShortcut(keycode: Self.keycodeHome) }
+                    shortcutButton("End", icon: nil) { sendShortcut(keycode: Self.keycodeEnd) }
+                    shortcutButton("PgUp", icon: nil) { sendShortcut(keycode: Self.keycodePageUp) }
+                    shortcutButton("PgDn", icon: nil) { sendShortcut(keycode: Self.keycodePageDown) }
+                    shortcutButton("Del", icon: nil) { sendShortcut(keycode: Self.keycodeForwardDelete) }
+                    shortcutButton("Space", icon: nil) { sendShortcut(keycode: Self.keycodeSpace) }
+                }
+                .padding(.horizontal, 10)
+            }
+
+            // Function keys row
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    shortcutButton("F1", icon: nil) { sendShortcut(keycode: Self.keycodeF1) }
+                    shortcutButton("F2", icon: nil) { sendShortcut(keycode: Self.keycodeF2) }
+                    shortcutButton("F3", icon: nil) { sendShortcut(keycode: Self.keycodeF3) }
+                    shortcutButton("F4", icon: nil) { sendShortcut(keycode: Self.keycodeF4) }
+                    shortcutButton("F5", icon: nil) { sendShortcut(keycode: Self.keycodeF5) }
+                    shortcutButton("F6", icon: nil) { sendShortcut(keycode: Self.keycodeF6) }
+                    shortcutButton("F7", icon: nil) { sendShortcut(keycode: Self.keycodeF7) }
+                    shortcutButton("F8", icon: nil) { sendShortcut(keycode: Self.keycodeF8) }
+                    shortcutButton("F9", icon: nil) { sendShortcut(keycode: Self.keycodeF9) }
+                    shortcutButton("F10", icon: nil) { sendShortcut(keycode: Self.keycodeF10) }
+                    shortcutButton("F11", icon: nil) { sendShortcut(keycode: Self.keycodeF11) }
+                    shortcutButton("F12", icon: nil) { sendShortcut(keycode: Self.keycodeF12) }
+                }
+                .padding(.horizontal, 10)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func shortcutButton(_ label: String, icon: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            if let icon {
+                VStack(spacing: 2) {
+                    Image(systemName: icon)
+                        .font(.system(size: 13))
+                    Text(label)
+                        .font(.system(size: 9, weight: .medium))
+                }
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: 48, height: 38)
+                .background(.white.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                Text(label)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .frame(minWidth: 36, minHeight: 32)
+                    .padding(.horizontal, 4)
+                    .background(.white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
     }
 
     private func toolbarButton(icon: String, label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
@@ -416,6 +745,8 @@ class CursorView: UIView {
     // Current display position
     private var displayX: CGFloat = 0.5
     private var displayY: CGFloat = 0.5
+    private var tickCount: Int = 0
+    private var isLightBackground = false
 
     init(session: IOSViewerSession) {
         self.session = session
@@ -482,6 +813,20 @@ class CursorView: UIView {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             cursorLayer.position = CGPoint(x: viewX, y: viewY)
+
+            // Sample brightness every ~10 ticks (~8-12Hz) for cursor color
+            tickCount += 1
+            if tickCount % 10 == 0 {
+                if let brightness = renderer.sampleBrightness(atNormalized: Float(displayX), y: Float(displayY)) {
+                    let wasLight = isLightBackground
+                    isLightBackground = brightness > 0.5
+                    if isLightBackground != wasLight {
+                        cursorLayer.fillColor = isLightBackground ? UIColor.black.cgColor : UIColor.white.cgColor
+                        cursorLayer.strokeColor = isLightBackground ? UIColor.white.cgColor : UIColor.black.cgColor
+                    }
+                }
+            }
+
             CATransaction.commit()
         }
     }
@@ -493,6 +838,7 @@ struct IOSMetalViewRepresentable: UIViewRepresentable {
     let viewerSession: IOSViewerSession
 
     func makeUIView(context: Context) -> MTKView {
+        CrashLog.write("IOSMetalViewRepresentable.makeUIView() — calling setup()")
         let mtkView = MTKView()
         mtkView.preferredFramesPerSecond = 60
         viewerSession.setup(mtkView: mtkView)
@@ -500,6 +846,31 @@ struct IOSMetalViewRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: MTKView, context: Context) {}
+}
+
+// MARK: - PiP Sample Buffer Layer
+
+/// UIView whose backing layer is AVSampleBufferDisplayLayer — required for PiP.
+/// Must be in the view hierarchy (even at 1x1) for AVPictureInPictureController to work.
+class PiPSampleBufferView: UIView {
+    override class var layerClass: AnyClass { AVSampleBufferDisplayLayer.self }
+
+    var sampleBufferLayer: AVSampleBufferDisplayLayer {
+        layer as! AVSampleBufferDisplayLayer
+    }
+}
+
+struct PiPLayerRepresentable: UIViewRepresentable {
+    let viewerSession: IOSViewerSession
+
+    func makeUIView(context: Context) -> PiPSampleBufferView {
+        let view = PiPSampleBufferView()
+        view.sampleBufferLayer.videoGravity = .resizeAspect
+        viewerSession.setupPiP(displayLayer: view.sampleBufferLayer)
+        return view
+    }
+
+    func updateUIView(_ uiView: PiPSampleBufferView, context: Context) {}
 }
 
 // MARK: - Touch Overlay
@@ -560,6 +931,12 @@ class TouchInputView: UIView, UITextFieldDelegate, UIGestureRecognizerDelegate {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         pinch.delegate = self
         addGestureRecognizer(pinch)
+
+        // Double-tap to toggle between fit-to-screen and 1:1 pixel mapping
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.delegate = self
+        addGestureRecognizer(doubleTap)
     }
 
     private var pinchStartZoom: Float = 1.0
@@ -591,6 +968,51 @@ class TouchInputView: UIView, UITextFieldDelegate, UIGestureRecognizerDelegate {
         }
     }
 
+    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        guard let session = viewerSession else { return }
+        onUserInteraction?()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+        if session.userZoom > 1.05 {
+            // Currently zoomed in — snap back to fit-to-screen
+            session.userZoom = 1.0
+            session.userPanOffset = .zero
+            session.updateViewport()
+        } else {
+            // Currently at fit — zoom to 1:1 pixel mapping centered on tap point
+            guard let renderer = session.renderer else { return }
+            let tapLoc = gesture.location(in: self)
+            let viewportOffset = renderer.viewportOffset
+            let viewportScale = renderer.viewportScale
+            // Convert tap to desktop-normalized coordinates
+            let desktopX = viewportOffset.x + Float(tapLoc.x / bounds.width) * viewportScale.x
+            let desktopY = viewportOffset.y + Float(tapLoc.y / bounds.height) * viewportScale.y
+
+            // Calculate zoom for 1:1: texture pixels == screen points
+            let screen = UIScreen.main.nativeBounds
+            let texW = session.textureWidth
+            let texH = session.textureHeight
+            guard texW > 0, texH > 0 else { return }
+            // 1:1 means one texture pixel = one screen pixel
+            // viewZoom = textureSize / screenSize (in the dominant axis)
+            let zoomX = Float(texW) / Float(screen.width)
+            let zoomY = Float(texH) / Float(screen.height)
+            let targetZoom = min(max(zoomX, zoomY), 5.0)
+
+            if targetZoom <= 1.05 {
+                // Texture is smaller than screen — no point zooming in
+                return
+            }
+
+            session.userZoom = targetZoom
+            // Center on tap point
+            session.cursorX = desktopX
+            session.cursorY = desktopY
+            session.userPanOffset = .zero
+            session.updateViewport()
+        }
+    }
+
     // Allow pinch and touches simultaneously
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         return true
@@ -603,7 +1025,7 @@ class TouchInputView: UIView, UITextFieldDelegate, UIGestureRecognizerDelegate {
         UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.4)
 
         if string.isEmpty && range.length > 0 {
-            sendVirtualKey(session: session, keycode: 51)  // Backspace
+            sendVirtualKey(session: session, keycode: VK.backspace.rawValue)
             // Re-seed so next backspace also works
             DispatchQueue.main.async { textField.text = " " }
             return false
@@ -611,9 +1033,9 @@ class TouchInputView: UIView, UITextFieldDelegate, UIGestureRecognizerDelegate {
 
         for char in string {
             if char == "\n" || char == "\r" {
-                sendVirtualKey(session: session, keycode: 36)
+                sendVirtualKey(session: session, keycode: VK.return.rawValue)
             } else if char == "\t" {
-                sendVirtualKey(session: session, keycode: 48)
+                sendVirtualKey(session: session, keycode: VK.tab.rawValue)
             } else {
                 var keyEvent = Peariscope_KeyEvent()
                 keyEvent.keycode = UInt32(char.unicodeScalars.first?.value ?? 0)
@@ -678,6 +1100,7 @@ class TouchInputView: UIView, UITextFieldDelegate, UIGestureRecognizerDelegate {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first, let session = viewerSession else { return }
+        session.isTouching = true
         if isPinching { return }
         onUserInteraction?()
 
@@ -708,9 +1131,13 @@ class TouchInputView: UIView, UITextFieldDelegate, UIGestureRecognizerDelegate {
         if touchCount == 2 {
             // Two-finger: right-click immediately
             cancelLongPress()
+            // In trackpad mode, use cursor position (not touch position on screen)
+            let clickLoc: CGPoint = session.isTrackpadMode
+                ? CGPoint(x: Double(session.cursorX), y: Double(session.cursorY))
+                : location
             let inputEvent = makeMouseButtonEvent(
                 button: .right, pressed: true,
-                x: Float(location.x), y: Float(location.y)
+                x: Float(clickLoc.x), y: Float(clickLoc.y)
             )
             session.sendInput(inputEvent)
         } else if touchCount == 1 {
@@ -732,7 +1159,13 @@ class TouchInputView: UIView, UITextFieldDelegate, UIGestureRecognizerDelegate {
                 // Haptic to signal drag mode activated
                 self.longPressHaptic.impactOccurred()
                 // Send mouse-down to begin drag
-                let loc = self.lastTouchLocation
+                // In trackpad mode, use cursor position (not touch position on screen)
+                let loc: CGPoint
+                if session.isTrackpadMode {
+                    loc = CGPoint(x: Double(session.cursorX), y: Double(session.cursorY))
+                } else {
+                    loc = self.lastTouchLocation
+                }
                 let down = makeMouseButtonEvent(
                     button: .left, pressed: true,
                     x: Float(loc.x), y: Float(loc.y)
@@ -862,15 +1295,22 @@ class TouchInputView: UIView, UITextFieldDelegate, UIGestureRecognizerDelegate {
 
         // Update viewport to follow cursor AFTER touch ends
         session.moveCursor(to: Float(endLocation.x), to: Float(endLocation.y))
+        session.isTouching = false
+        session.lastTouchEndTime = CFAbsoluteTimeGetCurrent()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         cancelLongPress()
+        viewerSession?.isTouching = false
+        viewerSession?.lastTouchEndTime = CFAbsoluteTimeGetCurrent()
         if isLongPressDragging, let session = viewerSession {
             // Release mouse button if drag was cancelled
+            let loc: CGPoint = session.isTrackpadMode
+                ? CGPoint(x: Double(session.cursorX), y: Double(session.cursorY))
+                : lastTouchLocation
             let up = makeMouseButtonEvent(
                 button: .left, pressed: false,
-                x: Float(lastTouchLocation.x), y: Float(lastTouchLocation.y)
+                x: Float(loc.x), y: Float(loc.y)
             )
             session.sendInput(up)
         }

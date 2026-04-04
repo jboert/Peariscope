@@ -10,19 +10,23 @@ struct IOSConnectView: View {
     @ObservedObject var networkManager: NetworkManager
     @State private var connectionCode = ""
     @State private var showScanner = false
+    @State private var showSettings = false
     @State private var savedHosts: [SavedHost] = SavedHost.loadAll()
     @State private var renamingHost: SavedHost?
     @State private var renameText = ""
     @State private var hostOnlineStatus: [String: Bool] = [:]
     @FocusState private var isCodeFocused: Bool
     @State private var suggestions: [String] = []
+    @State private var probeTask: Task<Void, Never>?
+    @StateObject private var localBrowser = LocalDiscoveryBrowser()
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Hero
-                heroSection
-                    .padding(.top, 32)
+        ZStack(alignment: .topTrailing) {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Hero
+                    heroSection
+                        .padding(.top, 32)
 
                 // Connect input
                 VStack(spacing: 0) {
@@ -59,11 +63,20 @@ struct IOSConnectView: View {
                 quickActions
                     .padding(.horizontal, 24)
 
+                // Local network hosts
+                if !localBrowser.discoveredHosts.isEmpty {
+                    localNetworkSection
+                        .padding(.horizontal, 24)
+                }
+
                 // Recent connections
                 if !savedHosts.isEmpty {
                     recentSection
                         .padding(.horizontal, 24)
                 }
+
+                // OTA update status
+                otaStatusBanner
 
                 // Error
                 if let error = networkManager.lastError {
@@ -93,10 +106,40 @@ struct IOSConnectView: View {
                 .padding(.bottom, 16)
             }
         }
+            // Settings gear — top right corner of the screen
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 56, height: 56)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 8)
+            .padding(.top, 4)
+        }
         .background(Color(.systemBackground))
         .onAppear {
             savedHosts = SavedHost.loadAll()
             probeHosts()
+            if UserDefaults.standard.object(forKey: "peariscope.localDiscovery") as? Bool ?? true {
+                localBrowser.start()
+            }
+        }
+        .onDisappear {
+            localBrowser.stop()
+        }
+        .sheet(isPresented: $showSettings) {
+            IOSSettingsView(networkManager: networkManager, isPresented: $showSettings)
+                .onDisappear {
+                    // Apply local discovery setting change
+                    let enabled = UserDefaults.standard.object(forKey: "peariscope.localDiscovery") as? Bool ?? true
+                    if enabled && !localBrowser.isBrowsing {
+                        localBrowser.start()
+                    } else if !enabled && localBrowser.isBrowsing {
+                        localBrowser.stop()
+                    }
+                }
         }
         .alert("Rename", isPresented: Binding(
             get: { renamingHost != nil },
@@ -111,6 +154,80 @@ struct IOSConnectView: View {
                 renamingHost = nil
             }
             Button("Cancel", role: .cancel) { renamingHost = nil }
+        }
+    }
+
+    // MARK: - OTA Update Banner
+
+    @ViewBuilder
+    private var otaStatusBanner: some View {
+        switch networkManager.otaStatus {
+        case .idle:
+            EmptyView()
+        case .downloading:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Downloading update...")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(.blue)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(Color.blue.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 24)
+        case .ready(let version):
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 14))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Update ready")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("v\(version) — restart to apply")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .foregroundStyle(.green)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(Color.green.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 24)
+        case .applied(let version):
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14))
+                Text("Updated to v\(version)")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(.green)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(Color.green.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 24)
+            .transition(.opacity)
+        case .failed(let error):
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14))
+                Text("Update failed: \(error)")
+                    .font(.system(size: 11))
+                    .lineLimit(2)
+            }
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(Color.orange.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 24)
         }
     }
 
@@ -217,7 +334,7 @@ struct IOSConnectView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
+            .frame(height: 80)
             .background(
                 RoundedRectangle(cornerRadius: 14)
                     .fill(Color(.tertiarySystemBackground))
@@ -258,6 +375,11 @@ struct IOSConnectView: View {
 
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 5) {
+                                    if host.pinned {
+                                        Image(systemName: "pin.fill")
+                                            .font(.system(size: 8))
+                                            .foregroundColor(.pearGreen)
+                                    }
                                     Text(host.name)
                                         .font(.system(size: 14, weight: .medium))
                                         .foregroundStyle(.primary)
@@ -279,9 +401,17 @@ struct IOSConnectView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 11)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
+                        Button {
+                            SavedHost.togglePin(code: host.code)
+                            savedHosts = SavedHost.loadAll()
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        } label: {
+                            Label(host.pinned ? "Unpin" : "Pin to Top", systemImage: host.pinned ? "pin.slash" : "pin")
+                        }
                         Button {
                             renameText = host.name
                             renamingHost = host
@@ -295,6 +425,79 @@ struct IOSConnectView: View {
                             Label("Remove", systemImage: "trash")
                         }
                     }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color(.tertiarySystemBackground))
+            )
+        }
+    }
+
+    // MARK: - Local Network Section
+
+    private var localNetworkSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("LOCAL NETWORK")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.tertiary)
+                    .tracking(1)
+                Image(systemName: "wifi")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.green)
+            }
+            .padding(.leading, 4)
+
+            VStack(spacing: 0) {
+                ForEach(Array(localBrowser.discoveredHosts.enumerated()), id: \.element.id) { index, host in
+                    if index > 0 {
+                        Divider()
+                            .padding(.leading, 48)
+                    }
+
+                    Button {
+                        connectToLocalHost(host)
+                    } label: {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.green.opacity(0.15))
+                                    .frame(width: 36, height: 36)
+                                Image(systemName: "desktopcomputer")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.green)
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 5) {
+                                    Text(host.name)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Text("Local")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundColor(.green)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(Color.green.opacity(0.12)))
+                                }
+                                Text(host.code.prefix(30) + "...")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.quaternary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .background(
@@ -337,16 +540,19 @@ struct IOSConnectView: View {
 
     private func probeHosts() {
         guard !savedHosts.isEmpty else { return }
+        // Only probe if runtime is already running — don't start it just to check status.
+        // Starting the worklet on idle causes significant CPU/heat from DHT bootstrap.
+        guard networkManager.isWorkletAlive else { return }
+        probeTask?.cancel()
         networkManager.onLookupResult = { code, online in
             DispatchQueue.main.async {
                 hostOnlineStatus[code.uppercased()] = online
             }
         }
-        Task {
-            if !networkManager.isWorkletAlive {
-                try? await networkManager.startRuntime()
-            }
+        probeTask = Task {
+            guard !Task.isCancelled else { return }
             for host in savedHosts {
+                guard !Task.isCancelled else { return }
                 networkManager.lookupPeer(code: host.code)
             }
         }
@@ -378,16 +584,55 @@ struct IOSConnectView: View {
         suggestions = []
     }
 
+    private func connectToLocalHost(_ host: DiscoveredHost) {
+        let code = host.code.trimmingCharacters(in: .whitespaces)
+        guard !code.isEmpty else { return }
+        SavedHost.save(code: code)
+        savedHosts = SavedHost.loadAll()
+        probeTask?.cancel()
+        probeTask = nil
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        CrashLog.write("[connect] connectToLocalHost: \(host.name) dhtPort=\(host.dhtPort) pk=\(host.publicKeyHex?.prefix(16) ?? "nil")")
+
+        Task {
+            do {
+                // Resolve Bonjour endpoint to get the host's local IP address
+                if let endpoint = host.endpoint, host.dhtPort > 0 {
+                    if let hostIP = await LocalDiscoveryBrowser.resolveEndpoint(endpoint) {
+                        CrashLog.write("[connect] LAN fast-connect: \(hostIP):\(host.dhtPort)")
+                        try await networkManager.connectLocal(code: code, hostIP: hostIP, dhtPort: host.dhtPort)
+                        return
+                    } else {
+                        CrashLog.write("[connect] Endpoint resolution failed, falling back to DHT")
+                    }
+                }
+                // Fallback: regular DHT connect
+                try await networkManager.connectFromQR(code)
+            } catch {
+                CrashLog.write("[connect] connectToLocalHost error: \(error)")
+                networkManager.lastError = "Connection failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
     private func connectToHost(code: String) {
         let trimmed = code.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         SavedHost.save(code: trimmed)
         savedHosts = SavedHost.loadAll()
+        // Cancel background host probes — they compete with the real connection
+        // for DHT bandwidth and cause "Stream was destroyed" errors
+        probeTask?.cancel()
+        probeTask = nil
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        CrashLog.write("[connect] connectToHost: \(trimmed.prefix(30))... isConnecting=\(networkManager.isConnecting) isConnected=\(networkManager.isConnected) alive=\(networkManager.isWorkletAlive)")
         Task {
             do {
+                CrashLog.write("[connect] calling connectFromQR")
                 try await networkManager.connectFromQR(trimmed)
+                CrashLog.write("[connect] connectFromQR returned OK")
             } catch {
+                CrashLog.write("[connect] connectFromQR error: \(error)")
                 networkManager.lastError = "Connection failed: \(error.localizedDescription)"
             }
         }
@@ -401,25 +646,49 @@ struct SavedHost: Identifiable, Codable {
     let code: String
     let name: String
     let lastConnected: Date
+    var pinned: Bool
 
     private static let key = "peariscope.savedHosts"
+
+    init(code: String, name: String, lastConnected: Date, pinned: Bool = false) {
+        self.code = code
+        self.name = name
+        self.lastConnected = lastConnected
+        self.pinned = pinned
+    }
+
+    // Decode with backward compat — old data has no `pinned` field
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        code = try c.decode(String.self, forKey: .code)
+        name = try c.decode(String.self, forKey: .name)
+        lastConnected = try c.decode(Date.self, forKey: .lastConnected)
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+    }
 
     static func loadAll() -> [SavedHost] {
         guard let data = UserDefaults.standard.data(forKey: key),
               let hosts = try? JSONDecoder().decode([SavedHost].self, from: data) else {
             return []
         }
-        return hosts.sorted { $0.lastConnected > $1.lastConnected }
+        // Pinned first, then by most recent
+        return hosts.sorted {
+            if $0.pinned != $1.pinned { return $0.pinned }
+            return $0.lastConnected > $1.lastConnected
+        }
     }
 
     static func save(code: String, name: String? = nil) {
         var hosts = loadAll()
-        let existingName = hosts.first(where: { $0.code.uppercased() == code.uppercased() })?.name
+        let existing = hosts.first(where: { $0.code.uppercased() == code.uppercased() })
+        let existingName = existing?.name
+        let wasPinned = existing?.pinned ?? false
         hosts.removeAll { $0.code.uppercased() == code.uppercased() }
         let host = SavedHost(
             code: code.uppercased(),
             name: name ?? existingName ?? code.uppercased(),
-            lastConnected: Date()
+            lastConnected: Date(),
+            pinned: wasPinned
         )
         hosts.insert(host, at: 0)
         if hosts.count > 10 { hosts = Array(hosts.prefix(10)) }
@@ -431,7 +700,17 @@ struct SavedHost: Identifiable, Codable {
     static func rename(code: String, newName: String) {
         var hosts = loadAll()
         if let i = hosts.firstIndex(where: { $0.code.uppercased() == code.uppercased() }) {
-            hosts[i] = SavedHost(code: hosts[i].code, name: newName, lastConnected: hosts[i].lastConnected)
+            hosts[i] = SavedHost(code: hosts[i].code, name: newName, lastConnected: hosts[i].lastConnected, pinned: hosts[i].pinned)
+            if let data = try? JSONEncoder().encode(hosts) {
+                UserDefaults.standard.set(data, forKey: key)
+            }
+        }
+    }
+
+    static func togglePin(code: String) {
+        var hosts = loadAll()
+        if let i = hosts.firstIndex(where: { $0.code.uppercased() == code.uppercased() }) {
+            hosts[i] = SavedHost(code: hosts[i].code, name: hosts[i].name, lastConnected: hosts[i].lastConnected, pinned: !hosts[i].pinned)
             if let data = try? JSONEncoder().encode(hosts) {
                 UserDefaults.standard.set(data, forKey: key)
             }
