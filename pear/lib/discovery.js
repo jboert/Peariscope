@@ -1,4 +1,4 @@
-import crypto from 'node:crypto'
+import crypto from 'hypercore-crypto'
 import b4a from 'b4a'
 
 /**
@@ -6,6 +6,9 @@ import b4a from 'b4a'
  *
  * Connection codes are derived from the host's public key + a one-time token.
  * The DHT topic is the hash of the connection code, so viewers can find hosts.
+ *
+ * Uses hypercore-crypto.data() (blake2b-256) for all hashing — matches
+ * worklet.js topic derivation algorithm (crypto.data()).
  */
 
 const CODE_LENGTH = 24 // 24-character alphanumeric codes (~124 bits entropy)
@@ -17,7 +20,7 @@ const CODE_LENGTH = 24 // 24-character alphanumeric codes (~124 bits entropy)
 export function generateConnectionCode (publicKey) {
   const token = crypto.randomBytes(8)
   const combined = Buffer.concat([publicKey, token])
-  const hash = crypto.createHash('sha256').update(combined).digest()
+  const hash = crypto.data(combined)
 
   // Encode three 64-bit chunks as base36 and concatenate for enough characters
   const part1 = hash.readBigUInt64BE(0).toString(36).toUpperCase()
@@ -35,10 +38,11 @@ export function generateConnectionCode (publicKey) {
 /**
  * Derive a 32-byte DHT topic from a connection code.
  * Both host and viewer compute the same topic from the same code.
+ * Uses blake2b-256 via hypercore-crypto.data() — matches worklet.js.
  */
 export function deriveTopicFromCode (code) {
-  const normalized = code.toUpperCase().trim()
-  return crypto.createHash('sha256').update(`peariscope:${normalized}`).digest()
+  const normalized = code.toLowerCase().trim().replace(/\s+/g, ' ')
+  return crypto.data(Buffer.from('peariscope:' + normalized))
 }
 
 /**
@@ -49,9 +53,9 @@ export function deriveTopicFromKey (publicKey) {
   const daysSinceEpoch = Math.floor(Date.now() / (1000 * 60 * 60 * 24))
   const epoch = Buffer.alloc(4)
   epoch.writeUInt32BE(daysSinceEpoch)
-  return crypto.createHash('sha256').update(
+  return crypto.data(
     Buffer.concat([Buffer.from('peariscope:persistent:'), publicKey, epoch])
-  ).digest()
+  )
 }
 
 /**

@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v34-nodupwrite-20260308'
+const WORKLET_VERSION = 'v46-topic-filter-20260319'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -29,6 +29,12 @@ const MSG = {
   STREAM_DATA: 0x05,
   STATUS_REQUEST: 0x06,
   LOOKUP_PEER: 0x07,
+  CACHED_DHT_NODES: 0x08,
+  SUSPEND: 0x09,
+  RESUME: 0x0A,
+  APPROVE_PEER: 0x0B,
+  CONNECT_LOCAL_PEER: 0x0C,
+  REANNOUNCE: 0x0D,
 
   // Worklet -> Native
   HOSTING_STARTED: 0x81,
@@ -41,7 +47,9 @@ const MSG = {
   STATUS_RESPONSE: 0x88,
   ERROR: 0x89,
   LOG: 0x8A,
-  LOOKUP_RESULT: 0x8B
+  LOOKUP_RESULT: 0x8B,
+  DHT_NODES: 0x8C,
+  UPDATE_AVAILABLE: 0x8D
 }
 
 let ipcPipe = null
@@ -352,6 +360,7 @@ function sendLog (msg) {
 const b4a = require('b4a')
 const crypto = require('hypercore-crypto')
 const Hyperswarm = require('hyperswarm')
+const HyperDHT = require('hyperdht')
 
 sendLog('Core modules loaded OK')
 
@@ -373,6 +382,67 @@ class PeariscopeWorklet {
     this.discovery = null
     this._pendingConnection = null
     this.maxPeers = 10
+    this._cachedNodes = null
+    this._cachedKeyPair = null
+    this._dhtNodeReportInterval = null
+    this._warmupInterval = null
+  }
+
+  setCachedKeyPair (publicKeyHex, secretKeyHex) {
+    try {
+      this._cachedKeyPair = {
+        publicKey: b4a.from(publicKeyHex, 'hex'),
+        secretKey: b4a.from(secretKeyHex, 'hex')
+      }
+      sendLog('Using cached keypair: ' + publicKeyHex.slice(0, 16) + '...')
+    } catch (e) {
+      sendLog('Invalid cached keypair: ' + (e.message || e))
+      this._cachedKeyPair = null
+    }
+  }
+
+  setCachedNodes (nodes) {
+    this._cachedNodes = nodes
+    sendLog('Received ' + nodes.length + ' cached DHT nodes from native')
+    // If swarm is already running, add nodes to the DHT
+    if (this.swarm && this.swarm.dht) {
+      this._injectCachedNodes(nodes)
+    }
+  }
+
+  _injectCachedNodes (nodes) {
+    if (!this.swarm || !this.swarm.dht || !nodes || nodes.length === 0) return
+    let added = 0
+    for (const node of nodes) {
+      if (node.host && node.port && node.host !== '127.0.0.1' && node.host !== '::1') {
+        try {
+          this.swarm.dht.addNode({ host: node.host, port: node.port })
+          added++
+        } catch (e) {}
+      }
+    }
+    sendLog('Injected ' + added + '/' + nodes.length + ' cached DHT nodes')
+  }
+
+  _startDhtNodeReporting () {
+    if (this._dhtNodeReportInterval) return
+    // Report DHT routing table nodes to native every 60s for caching
+    this._dhtNodeReportInterval = setInterval(() => {
+      if (!this.swarm || !this.swarm.dht) return
+      try {
+        const table = this.swarm.dht.toArray()
+        if (table && table.length > 0) {
+          const nodes = table.map(n => ({
+            host: n.host,
+            port: n.port,
+            lastSeen: Date.now()
+          }))
+          sendFrame(MSG.DHT_NODES, { nodes })
+        }
+      } catch (e) {
+        sendLog('DHT node report error: ' + (e.message || e))
+      }
+    }, 60000)
   }
 
   async start () {
@@ -380,24 +450,150 @@ class PeariscopeWorklet {
       throw new Error('Required modules not loaded (crypto=' + !!crypto + ', Hyperswarm=' + !!Hyperswarm + ')')
     }
 
-    this.keyPair = crypto.keyPair()
-    sendLog('Public key: ' + b4a.toString(this.keyPair.publicKey, 'hex').slice(0, 16) + '...')
+    // Reuse cached keypair if available — same identity = same NAT mappings on CGNAT
+    if (this._cachedKeyPair && this._cachedKeyPair.publicKey.length === 32 && this._cachedKeyPair.secretKey.length === 64) {
+      this.keyPair = this._cachedKeyPair
+      sendLog('Reusing cached keypair: ' + b4a.toString(this.keyPair.publicKey, 'hex').slice(0, 16) + '...')
+    } else {
+      this.keyPair = crypto.keyPair()
+      sendLog('Generated new keypair: ' + b4a.toString(this.keyPair.publicKey, 'hex').slice(0, 16) + '...')
+      // Send new keypair to native for persistence
+      sendFrame(MSG.DHT_NODES, {
+        keypair: {
+          publicKey: b4a.toString(this.keyPair.publicKey, 'hex'),
+          secretKey: b4a.toString(this.keyPair.secretKey, 'hex')
+        }
+      })
+    }
 
-    this.swarm = new Hyperswarm({ keyPair: this.keyPair })
+    // Build DHT with ephemeral:false to be immediately persistent.
+    const dhtOpts = {
+      ephemeral: false,
+      port: 49800 + Math.floor(Math.random() * 1000),
+      randomPunchInterval: 2000
+    }
+
+    // Use Pear sidecar's DHT config if available (running inside pear-runtime).
+    // This gives us the sidecar's warm bootstrap/routing nodes — much faster than
+    // cold-starting from the 3 default Holepunch nodes on CGNAT networks.
+    // Note: In BareKit context neither API is available — these only activate inside pear-runtime.
+    if (typeof Pear !== 'undefined' && Pear.app && Pear.app.dht) {
+      // Pear v2 API
+      const pearDht = Pear.app.dht
+      if (pearDht.bootstrap && pearDht.bootstrap.length > 0) {
+        dhtOpts.bootstrap = pearDht.bootstrap
+        sendLog('Using Pear.app.dht bootstrap: ' + pearDht.bootstrap.length + ' nodes')
+      }
+      if (pearDht.nodes && pearDht.nodes.length > 0) {
+        dhtOpts.nodes = pearDht.nodes
+        sendLog('Using Pear.app.dht nodes: ' + pearDht.nodes.length + ' nodes')
+      }
+    }
+
+    // Add cached remote nodes as routing table seeds (NOT bootstrap).
+    // CRITICAL: setting dhtOpts.bootstrap OVERRIDES HyperDHT's default bootstrap
+    // nodes (node1/2/3.hyperdht.org:49737). If cached nodes are stale, the DHT
+    // can't bootstrap at all — connections take 30-60+ seconds or time out.
+    // Use `nodes` instead — these are added to the routing table after bootstrap,
+    // speeding up lookups without replacing the reliable default bootstrap.
+    if (this._cachedNodes && this._cachedNodes.length > 0) {
+      const routingNodes = this._cachedNodes
+        .filter(n => n.host && n.port && n.host !== '127.0.0.1' && n.host !== '::1' && n.host !== 'localhost')
+        .slice(0, 50)
+        .map(n => ({ host: n.host, port: n.port }))
+      if (routingNodes.length > 0) {
+        if (dhtOpts.bootstrap) {
+          // Pear.app.dht bootstrap exists — safe to supplement
+          dhtOpts.bootstrap = dhtOpts.bootstrap.concat(routingNodes)
+        } else {
+          // No Pear bootstrap — add cached nodes as routing table seeds,
+          // keep HyperDHT defaults (node1/2/3.hyperdht.org) for bootstrap
+          dhtOpts.nodes = (dhtOpts.nodes || []).concat(routingNodes)
+        }
+        sendLog('Added ' + routingNodes.length + ' cached nodes as routing seeds')
+      }
+    }
+    sendLog('DHT bootstrap: ' + (dhtOpts.bootstrap ? dhtOpts.bootstrap.length + ' custom' : 'defaults') + ', routing nodes: ' + (dhtOpts.nodes ? dhtOpts.nodes.length : 0))
+
+    const dht = new HyperDHT(dhtOpts)
+    sendLog('DHT created: ephemeral=false port=' + dhtOpts.port)
+
+    const swarmOpts = {
+      keyPair: this.keyPair,
+      dht  // pass our pre-configured DHT instance
+    }
+
+    // relayThrough: when direct holepunch fails (symmetric NAT/CGNAT),
+    // Hyperswarm relays traffic through a DHT node. Without this, connections
+    // between two symmetric NAT peers silently fail. Keet uses relays.
+    // Must return a public key (Buffer) of a node to relay through, or null.
+    swarmOpts.relayThrough = (force) => {
+      if (!this.swarm || !this.swarm.dht) return null
+      // Only relay when forced (symmetric NAT detected) or when DHT says we're randomized
+      if (!force && !this.swarm.dht.randomized) return null
+      const nodes = this.swarm.dht.toArray()
+      if (nodes.length === 0) return null
+      // Pick a random node's public key from the routing table as relay
+      const node = nodes[Math.floor(Math.random() * nodes.length)]
+      // DHT routing table nodes have an 'id' property which is their public key
+      return node.id || null
+    }
+
+    this.swarm = new Hyperswarm(swarmOpts)
+
+    // Force DHT to persistent mode immediately.
+    // The constructor's ephemeral:false sets _forcePersistent=true and _stableTicks=0,
+    // which triggers _updateNetworkState() during bootstrap. BUT if the node is
+    // firewalled (common on mobile), the NAT check fails and the node stays ephemeral.
+    // For HOSTING, we need to be persistent so viewers can find us via DHT,
+    // even behind a firewall (holepunching/relay handles the actual connection).
+    // _stableTicks=0 is already handled by the constructor when ephemeral:false is set.
+    dht.ephemeral = false
+    dht.io.ephemeral = false
+    // Monkey-patch _randomPunchLimit — hardcoded to 1 in hyperdht 6.29.x, not configurable via opts.
+    // Higher limit allows more concurrent holepunch attempts for faster NAT traversal.
+    dht._randomPunchLimit = 20
+    sendLog('DHT: forced persistent, punch limit=20, interval=2000ms')
+    sendLog('relayThrough: enabled (fallback for symmetric NAT)')
 
     this.swarm.on('connection', (stream, info) => {
       const type = info.client ? 'client' : 'server'
-      sendLog('Swarm connection: ' + type)
+      sendLog('Swarm connection: ' + type + ' remoteKey=' + (info.publicKey ? b4a.toString(info.publicKey, 'hex').slice(0, 16) : 'unknown'))
       this._onPeerConnection(stream, info)
     })
 
     this.swarm.on('update', () => {
-      sendLog('Swarm update: connections=' + this.swarm.connections.size + ' peers=' + this.swarm.peers.size)
+      const connecting = this.swarm.connecting || 0
+      const firewalled = this.swarm.dht ? (this.swarm.dht.firewalled ? 'yes' : 'no') : '?'
+      const randomized = this.swarm.dht ? (this.swarm.dht.randomized ? 'yes' : 'no') : '?'
+      sendLog('Swarm update: connections=' + this.swarm.connections.size + ' peers=' + this.swarm.peers.size + ' connecting=' + connecting + ' firewalled=' + firewalled + ' randomized=' + randomized)
     })
+
+    // Log banned peers — these are silently rejected
+    this.swarm.on('ban', (peerInfo, err) => {
+      sendLog('Swarm BAN: ' + (peerInfo.publicKey ? b4a.toString(peerInfo.publicKey, 'hex').slice(0, 16) : 'unknown') + ' err=' + (err ? err.message : 'none'))
+    })
+
+    // Inject cached nodes into DHT after construction
+    if (this._cachedNodes && this._cachedNodes.length > 0) {
+      this._injectCachedNodes(this._cachedNodes)
+    }
 
     // Wait for DHT to bootstrap before signaling readiness
     await this.swarm.listen()
     sendLog('Hyperswarm listening (DHT bootstrapped)')
+
+    // Start periodic DHT node reporting for native caching
+    this._startDhtNodeReporting()
+    // Report initial nodes immediately
+    try {
+      const table = this.swarm.dht.toArray()
+      if (table && table.length > 0) {
+        const nodes = table.map(n => ({ host: n.host, port: n.port, lastSeen: Date.now() }))
+        sendFrame(MSG.DHT_NODES, { nodes })
+        sendLog('Initial DHT report: ' + nodes.length + ' nodes')
+      }
+    } catch (e) {}
   }
 
   async startHosting (deviceCode) {
@@ -430,17 +626,60 @@ class PeariscopeWorklet {
       sendLog('DHT flush error: ' + (err.message || err))
     }
 
+    // Start periodic re-announcement to keep DHT records fresh
+    this._startReannounceTimer()
+
+    // Include DHT port so native can advertise it via Bonjour for LAN fast-connect
+    const dhtPort = this.swarm && this.swarm.dht ? this.swarm.dht.address().port : 0
     sendFrame(MSG.HOSTING_STARTED, {
       publicKeyHex: b4a.toString(this.keyPair.publicKey, 'hex'),
-      connectionCode: code
+      connectionCode: code,
+      dhtPort
     })
   }
 
   stopHosting () {
     if (!this.isHosting) return
+    this._stopReannounceTimer()
     this._cleanupHosting()
     sendFrame(MSG.HOSTING_STOPPED)
     sendLog('Stopped hosting')
+  }
+
+  // Re-announce the hosting topic on the DHT without tearing down the session.
+  // Called after sleep/wake, network changes, and periodically to keep the
+  // DHT record fresh so viewers can always find the host.
+  reannounce () {
+    if (!this.isHosting || !this.connectionInfo) return
+    const { topic, code } = this.connectionInfo
+    sendLog('Re-announcing DHT topic for code: ' + code)
+    try {
+      this.discovery = this.swarm.join(topic, { server: true, client: false })
+      this.discovery.flushed().then(() => {
+        sendLog('DHT re-announce flushed for code: ' + code)
+      }).catch(err => {
+        sendLog('DHT re-announce flush error: ' + (err.message || err))
+      })
+    } catch (e) {
+      sendLog('Re-announce error: ' + (e.message || e))
+    }
+  }
+
+  _startReannounceTimer () {
+    this._stopReannounceTimer()
+    // Re-announce every 5 minutes to keep DHT records fresh.
+    // DHT nodes can age out records, and network transitions may
+    // invalidate the announcement without any error signal.
+    this._reannounceInterval = setInterval(() => {
+      this.reannounce()
+    }, 5 * 60 * 1000)
+  }
+
+  _stopReannounceTimer () {
+    if (this._reannounceInterval) {
+      clearInterval(this._reannounceInterval)
+      this._reannounceInterval = null
+    }
   }
 
   _cleanupHosting () {
@@ -463,8 +702,40 @@ class PeariscopeWorklet {
     sendLog('Cleanup done')
   }
 
+  connectLocalPeer (code, host, port) {
+    sendLog('LAN fast-connect: ' + host + ':' + port + ' code=' + code)
+    // Inject the host's local address into the DHT routing table so the
+    // DHT lookup finds it on the first hop instead of querying remote bootstrap nodes.
+    if (this.swarm && this.swarm.dht && host && port) {
+      try {
+        this.swarm.dht.addNode({ host, port })
+        sendLog('Injected local peer node: ' + host + ':' + port)
+      } catch (e) {
+        sendLog('addNode error: ' + (e.message || e))
+      }
+    }
+    // Now connect normally — DHT will find the host locally
+    this.connectToPeer(code)
+  }
+
   connectToPeer (code) {
     sendLog('Connecting with code: ' + code)
+
+    // Leave old viewer topic before joining new one — prevents stale swarm
+    // connections from the previous session reconnecting to the wrong peer
+    if (this._lastViewerTopic) {
+      sendLog('Leaving old viewer topic before connecting to new peer')
+      this.swarm.leave(this._lastViewerTopic).catch(() => {})
+    }
+    // Disconnect any lingering peers from previous session
+    for (const [keyHex, peer] of this.peers) {
+      if (!this.isHosting || !this.connectionInfo) {
+        sendLog('Cleaning up stale peer: ' + keyHex.slice(0, 16) + '...')
+        peer.mux.destroy()
+        this.peers.delete(keyHex)
+      }
+    }
+
     this._lastViewerTopic = this._deriveTopicFromCode(code)
     this._connectAttempt(code, 1).catch((err) => {
       sendLog('connectToPeer error: ' + (err.message || err))
@@ -488,12 +759,20 @@ class PeariscopeWorklet {
     const topic = this._deriveTopicFromCode(code)
     const discovery = this.swarm.join(topic, { server: false, client: true })
 
+    this._connectionSucceeded = false
+
+    // Non-blocking: log when DHT lookup and swarm flush complete
     discovery.flushed().then(() => {
       sendLog('DHT lookup flushed for code: ' + code + ' (attempt ' + attempt + ')')
     }).catch((err) => {
       sendLog('DHT lookup flush error: ' + (err.message || err))
     })
 
+    this.swarm.flush().then(() => {
+      sendLog('Swarm flush complete for attempt ' + attempt)
+    }).catch(() => {})
+
+    // Timeout covers the entire process: DHT lookup + holepunch + relay
     const timeout = setTimeout(() => {
       if (this._connectionSucceeded) return
 
@@ -513,8 +792,29 @@ class PeariscopeWorklet {
       }
     }, timeoutMs)
 
-    this._connectionSucceeded = false
     this._pendingConnection = { code, timeout, discovery }
+  }
+
+  disconnectAllPeers () {
+    sendLog('disconnectAllPeers: peers=' + this.peers.size + ' topic=' + (this._lastViewerTopic ? 'yes' : 'no'))
+    // Destroy all peer muxers
+    for (const [keyHex, peer] of this.peers) {
+      peer.mux.destroy()
+      sendLog('Disconnected peer: ' + keyHex.slice(0, 16) + '...')
+    }
+    this.peers.clear()
+    // Cancel pending connection attempts
+    if (this._pendingConnection) {
+      clearTimeout(this._pendingConnection.timeout)
+      this._pendingConnection.discovery.destroy().catch(() => {})
+      this._pendingConnection = null
+    }
+    // Leave the viewer topic so swarm doesn't reconnect
+    if (this._lastViewerTopic) {
+      this.swarm.leave(this._lastViewerTopic).catch(() => {})
+      this._lastViewerTopic = null
+    }
+    this._connectionSucceeded = false
   }
 
   disconnectPeer (peerKeyHex) {
@@ -556,6 +856,8 @@ class PeariscopeWorklet {
     sendFrame(MSG.STATUS_RESPONSE, {
       isHosting: this.isHosting,
       isConnected: this.peers.size > 0,
+      connectionCode: this.connectionInfo ? this.connectionInfo.code : null,
+      publicKeyHex: this.keyPair ? b4a.toString(this.keyPair.publicKey, 'hex') : null,
       peers
     })
   }
@@ -563,6 +865,20 @@ class PeariscopeWorklet {
   _onPeerConnection (stream, info) {
     const remoteKey = info.publicKey
     const keyHex = b4a.toString(remoteKey, 'hex')
+
+    // Reject connections from stale topics. After disconnectAllPeers() or
+    // connectToPeer(), _lastViewerTopic is set to the new target. If a
+    // lingering in-flight connection from an old topic completes, its shared
+    // topics won't include the current viewer topic — destroy it immediately.
+    if (this._lastViewerTopic && !this.isHosting && info.topics) {
+      const topicHex = b4a.toString(this._lastViewerTopic, 'hex')
+      const matchesCurrent = info.topics.some(t => b4a.toString(t, 'hex') === topicHex)
+      if (!matchesCurrent) {
+        sendLog('Rejecting stale connection from old topic: ' + keyHex.slice(0, 16) + '...')
+        stream.destroy()
+        return
+      }
+    }
 
     // Enforce max peers limit
     if (this.peers.size >= this.maxPeers) {
@@ -594,15 +910,41 @@ class PeariscopeWorklet {
       ch0total++
       ch0sinceLast++
 
+      // Detect keyframes by inspecting first NAL unit type after Annex B start code.
+      // Keyframes MUST never be dropped — missing keyframes cause blocky corruption
+      // and frozen regions until the next keyframe arrives (~1 second later).
+      // H.265: VPS NAL type = 32 (0x40 >> 1), SPS = 33, PPS = 34, IDR = 19/20
+      // H.264: SPS NAL type = 7 (0x67 & 0x1F), IDR = 5
+      let isKeyframe = false
+      if (data.length >= 5) {
+        // Find first NAL unit after start code (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
+        let nalByte = -1
+        if (data[0] === 0 && data[1] === 0 && data[2] === 0 && data[3] === 1) {
+          nalByte = data[4]
+        } else if (data[0] === 0 && data[1] === 0 && data[2] === 1) {
+          nalByte = data[3]
+        }
+        if (nalByte >= 0) {
+          const h265type = (nalByte >> 1) & 0x3F
+          const h264type = nalByte & 0x1F
+          // H.265 VPS=32, SPS=33, PPS=34, IDR_W_RADL=19, IDR_N_LP=20
+          // H.264 SPS=7, PPS=8, IDR=5
+          isKeyframe = (h265type >= 32 && h265type <= 34) || h265type === 19 || h265type === 20 ||
+                       h264type === 5 || h264type === 7 || h264type === 8
+        }
+      }
+
       // Counter gate: always skip if we haven't seen enough frames since last forward
-      if (ch0sinceLast < CH0_SKIP_MIN) {
+      // BUT never skip keyframes
+      if (!isKeyframe && ch0sinceLast < CH0_SKIP_MIN) {
         ch0drops++
         return
       }
 
       // Time gate: if Date.now() works, enforce minimum interval
+      // BUT never gate keyframes
       const now = typeof Date !== 'undefined' && typeof Date.now === 'function' ? Date.now() : 0
-      if (now > 0 && ch0lastForward > 0 && (now - ch0lastForward) < CH0_INTERVAL) {
+      if (!isKeyframe && now > 0 && ch0lastForward > 0 && (now - ch0lastForward) < CH0_INTERVAL) {
         ch0drops++
         return
       }
@@ -941,9 +1283,19 @@ function handleFrame (frame) {
       break
     }
 
+    case MSG.CONNECT_LOCAL_PEER: {
+      const json = JSON.parse(rest.toString())
+      worklet.connectLocalPeer(json.code, json.host, json.port)
+      break
+    }
+
     case MSG.DISCONNECT: {
       const json = JSON.parse(rest.toString())
-      worklet.disconnectPeer(json.peerKeyHex)
+      if (json.peerKeyHex === '*') {
+        worklet.disconnectAllPeers()
+      } else {
+        worklet.disconnectPeer(json.peerKeyHex)
+      }
       break
     }
 
@@ -1003,6 +1355,69 @@ function handleFrame (frame) {
     case MSG.LOOKUP_PEER: {
       const json = JSON.parse(rest.toString())
       worklet.lookupPeer(json.code).catch((e) => sendLog('lookupPeer error: ' + e.message))
+      break
+    }
+
+    case MSG.CACHED_DHT_NODES: {
+      try {
+        const json = JSON.parse(rest.toString())
+        if (json.nodes && Array.isArray(json.nodes)) {
+          worklet.setCachedNodes(json.nodes)
+        }
+        // Accept cached keypair for identity persistence
+        if (json.keypair && json.keypair.publicKey && json.keypair.secretKey) {
+          worklet.setCachedKeyPair(json.keypair.publicKey, json.keypair.secretKey)
+        }
+      } catch (e) {
+        sendLog('CACHED_DHT_NODES parse error: ' + (e.message || e))
+      }
+      break
+    }
+
+    case MSG.SUSPEND: {
+      sendLog('SUSPEND received')
+      if (worklet.swarm) {
+        // Use Hyperswarm's native suspend — properly disconnects all peers,
+        // stops discovery, and preserves state for fast resume.
+        // Previous implementation only paused individual streams.
+        worklet.swarm.suspend().then(() => {
+          sendLog('Swarm suspended')
+        }).catch(e => {
+          sendLog('Swarm suspend error: ' + (e.message || e))
+        })
+      }
+      break
+    }
+
+    case MSG.RESUME: {
+      sendLog('RESUME received')
+      if (worklet.swarm) {
+        // Use Hyperswarm's native resume — reconnects peers and resumes discovery.
+        worklet.swarm.resume().then(() => {
+          sendLog('Swarm resumed')
+          // Re-announce hosting topic after resume — swarm.resume() does NOT
+          // re-announce topics automatically, so the host becomes invisible on DHT.
+          worklet.reannounce()
+        }).catch(e => {
+          sendLog('Swarm resume error: ' + (e.message || e))
+        })
+      }
+      break
+    }
+
+    case MSG.REANNOUNCE: {
+      sendLog('REANNOUNCE received')
+      worklet.reannounce()
+      break
+    }
+
+    case MSG.APPROVE_PEER: {
+      try {
+        const json = JSON.parse(rest.toString())
+        sendLog('APPROVE_PEER: ' + (json.peerKeyHex || '').slice(0, 16) + '...')
+        // Currently no-op — peer approval is handled at the native layer.
+        // Placeholder for future peer gating at the worklet level.
+      } catch (e) {}
       break
     }
 
