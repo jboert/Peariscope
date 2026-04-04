@@ -1,4 +1,5 @@
 import Foundation
+import Network
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -18,8 +19,22 @@ public final class NetworkManager: ObservableObject {
     @Published public var relayPort: UInt32?
     @Published public var connectedPeers: [PeerState] = []
     @Published public var lastError: String?
+    /// Host's Noise public key (set when hosting starts, used for Bonjour LAN discovery)
+    @Published public var hostPublicKeyHex: String?
+    /// Host's DHT listen port (set when hosting starts, used for Bonjour LAN discovery)
+    @Published public var hostDhtPort: UInt16 = 0
 
-    private let bareBridge = BareWorkletBridge()
+    /// OTA update state — drives UI indicators on iOS/macOS.
+    public enum OtaStatus: Equatable {
+        case idle
+        case downloading
+        case ready(version: String)
+        case applied(version: String)
+        case failed(String)
+    }
+    @Published public var otaStatus: OtaStatus = .idle
+
+    public let bareBridge = BareWorkletBridge()
     // Keep legacy IPC client for fallback if BareKit isn't available
     private let ipcClient: IpcClient
     #if os(macOS)
@@ -37,8 +52,38 @@ public final class NetworkManager: ObservableObject {
     /// When true, ignore incoming peer connections (user explicitly disconnected)
     private var suppressConnections = false
     public var onVideoData: ((Data) -> Void)?
+    public var onAudioData: ((Data) -> Void)?
     public var onInputData: ((Data) -> Void)?
-    public var onControlData: ((Data) -> Void)?
+
+    /// Stream IDs of peers that are blocked from sending input/control/audio data.
+    /// HostSession populates this with pending (PIN-unverified) peers.
+    /// Checked in onStreamData before dispatching to channel callbacks.
+    public var blockedStreamIds: Set<UInt32> = []
+
+    /// Set a direct ch0 video callback on the bridge, bypassing @MainActor isolation.
+    /// The callback fires on BareKit's IPC thread. Use for thread-safe decoders.
+    public nonisolated func setDirectVideoCallback(_ callback: ((Data) -> Void)?) {
+        bareBridge.onCh0VideoData = callback
+    }
+    /// Buffered control messages that arrived before onControlData was set.
+    /// Replayed when the callback is assigned.
+    private var pendingControlData: [Data] = []
+    public var onControlData: ((Data) -> Void)? {
+        didSet {
+            NSLog("[net] onControlData didSet: callback=%@, pendingBuffer=%d", onControlData != nil ? "SET" : "NIL", pendingControlData.count)
+            if let cb = onControlData, !pendingControlData.isEmpty {
+                let buffered = pendingControlData
+                pendingControlData.removeAll()
+                NSLog("[net] Replaying %d buffered control messages", buffered.count)
+                for data in buffered {
+                    cb(data)
+                }
+            } else if onControlData == nil {
+                // Clear stale buffered messages so they don't replay on next connect
+                pendingControlData.removeAll()
+            }
+        }
+    }
     public var onPeerConnected: ((PeerState) -> Void)?
     public var onPeerDisconnected: ((PeerState) -> Void)?
     public var onJSLog: ((String) -> Void)?
@@ -49,6 +94,8 @@ public final class NetworkManager: ObservableObject {
     private var lastConnectionCode: String?
     private var sleepObserver: Any?
     private var wakeObserver: Any?
+    private var networkMonitor: NWPathMonitor?
+    private var lastNetworkPath: NWPath?
 
     public init() {
         // Load or generate persistent device code
@@ -92,6 +139,8 @@ public final class NetworkManager: ObservableObject {
                 guard let self else { return }
                 self.isHosting = true
                 self.connectionCode = event.connectionCode
+                self.hostPublicKeyHex = event.publicKeyHex
+                self.hostDhtPort = event.dhtPort
                 UserDefaults.standard.set(event.connectionCode, forKey: "peariscope.lastConnectionWords")
             }
         }
@@ -133,9 +182,11 @@ public final class NetworkManager: ObservableObject {
                 let removedPeer = self.connectedPeers.first { $0.id == event.peerKeyHex }
                 self.connectedPeers.removeAll { $0.id == event.peerKeyHex }
                 self.isConnected = !self.connectedPeers.isEmpty
-                if let removedPeer {
-                    self.onPeerDisconnected?(removedPeer)
-                }
+                // Always fire onPeerDisconnected — even if peer wasn't in connectedPeers
+                // (e.g., pending peer that disconnected before being approved).
+                // Create a synthetic PeerState if needed so HostSession can clean up.
+                let peer = removedPeer ?? PeerState(id: event.peerKeyHex, name: "", streamId: 0)
+                self.onPeerDisconnected?(peer)
                 if let code = self.lastConnectionCode {
                     self.reconnectionManager.peerDisconnected(
                         code: code,
@@ -148,18 +199,40 @@ public final class NetworkManager: ObservableObject {
         bareBridge.onStreamData = { [weak self] event in
             guard let self else { return }
             if event.channel == 0 {
-                // Video: call directly from IPC thread to avoid unbounded main queue
-                // closure accumulation during burst delivery. decoder.decode() handles
-                // its own threading via serial queue + depth limiting.
+                // Video: onCh0VideoData handles this directly from the bridge.
+                // Fall back to onVideoData if set (macOS path).
+                // Video is separately gated by HostSession.sendVideoToAllPeers
+                // which checks pendingPeerIds before sending. No gate needed here
+                // since video flows host→viewer, not viewer→host.
                 self.onVideoData?(event.data)
             } else {
-                // Input/control: dispatch to main since handlers update UI state
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    switch event.channel {
-                    case 1: self.onInputData?(event.data)
-                    case 2: self.onControlData?(event.data)
-                    default: break
+                // Block input (ch1) and audio (ch3) from unverified peers.
+                // Control (ch2) is allowed through so the viewer's PIN
+                // response can reach the host for automatic verification.
+                // Other control messages from unverified peers are harmless
+                // since no video/audio is flowing to them anyway.
+                if event.channel != 2 && self.blockedStreamIds.contains(event.streamId) { return }
+
+                if event.channel == 3 {
+                    // Audio: deliver directly without dispatching to main thread.
+                    // AudioPlayer is thread-safe and needs low-latency delivery.
+                    self.onAudioData?(event.data)
+                } else {
+                    // Input/control: dispatch to main since handlers update UI state
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        switch event.channel {
+                        case 1: self.onInputData?(event.data)
+                        case 2:
+                            if let cb = self.onControlData {
+                                cb(event.data)
+                            } else {
+                                // Buffer control messages until a handler is set
+                                // (e.g. PIN challenge arrives before viewer session exists)
+                                self.pendingControlData.append(event.data)
+                            }
+                        default: break
+                        }
                     }
                 }
             }
@@ -167,10 +240,13 @@ public final class NetworkManager: ObservableObject {
 
         bareBridge.onConnectionEstablished = { [weak self] event in
             self?.debugLog("[net] Connection established: \(event.peerKeyHex.prefix(16))... streamId=\(event.streamId)")
+            // Don't set isConnected here — onPeerConnected handles that atomically
+            // with adding the peer to connectedPeers. Setting isConnected here
+            // triggers SwiftUI view creation before the peer exists, causing
+            // setup() to see peers: 0 and send IDR to nobody.
             Task { @MainActor in
-                self?.isConnected = true
                 self?.isConnecting = false
-                NSLog("[net] onConnectionEstablished: isConnected=true, isConnecting=false")
+                NSLog("[net] onConnectionEstablished: isConnecting=false (waiting for onPeerConnected)")
             }
         }
 
@@ -193,8 +269,51 @@ public final class NetworkManager: ObservableObject {
             self?.onJSLog?(message)
         }
 
+        bareBridge.onStatusResponse = { [weak self] event in
+            Task { @MainActor in
+                guard let self else { return }
+                // Recover connectionCode from status if HOSTING_STARTED was lost
+                // (IPC backpressure can buffer it behind swarm.join DHT ops)
+                if event.isHosting, let code = event.connectionCode, !code.isEmpty, self.connectionCode == nil {
+                    self.debugLog("[net] Recovered connectionCode from status response: \(code)")
+                    self.isHosting = true
+                    self.connectionCode = code
+                    UserDefaults.standard.set(code, forKey: "peariscope.lastConnectionWords")
+                }
+            }
+        }
+
+        bareBridge.onDhtNodes = { [weak self] nodes in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.mergeDhtNodesCache(nodes)
+            }
+        }
+
         bareBridge.onLookupResult = { [weak self] code, online in
             self?.onLookupResult?(code, online)
+        }
+
+        bareBridge.onOtaUpdate = { [weak self] version, bundleData in
+            Task { @MainActor in
+                guard let self else { return }
+                self.debugLog("[ota] Received update v\(version), \(bundleData.count) bytes")
+                self.otaStatus = .downloading
+
+                let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                let bundleURL = docsDir.appendingPathComponent("worklet-ota.bundle")
+                let versionURL = docsDir.appendingPathComponent("worklet-ota.version")
+
+                do {
+                    try bundleData.write(to: bundleURL)
+                    try version.write(to: versionURL, atomically: true, encoding: .utf8)
+                    self.debugLog("[ota] Saved OTA bundle to \(bundleURL.path)")
+                    self.otaStatus = .ready(version: version)
+                } catch {
+                    self.debugLog("[ota] Failed to save OTA bundle: \(error)")
+                    self.otaStatus = .failed(error.localizedDescription)
+                }
+            }
         }
 
         // Reconnection handler
@@ -212,11 +331,24 @@ public final class NetworkManager: ObservableObject {
             }
         }
 
-        // Clipboard sharing
+        // Clipboard sharing — text
         clipboardSharing.onClipboardChanged = { [weak self] text in
             guard let self else { return }
             var clipboard = Peariscope_ClipboardData()
             clipboard.text = text
+            var control = Peariscope_ControlMessage()
+            control.clipboard = clipboard
+            guard let data = try? control.serializedData() else { return }
+            for peer in self.connectedPeers {
+                try? self.sendControlData(data, streamId: peer.streamId)
+            }
+        }
+
+        // Clipboard sharing — images (PNG)
+        clipboardSharing.onImageClipboardChanged = { [weak self] pngData in
+            guard let self else { return }
+            var clipboard = Peariscope_ClipboardData()
+            clipboard.imagePng = pngData
             var control = Peariscope_ControlMessage()
             control.clipboard = clipboard
             guard let data = try? control.serializedData() else { return }
@@ -278,8 +410,14 @@ public final class NetworkManager: ObservableObject {
         ipcClient.onStreamData = { [weak self] event in
             switch event.channel {
             case .video: self?.onVideoData?(event.data)
+            case .audio: self?.onAudioData?(event.data)
             case .input: self?.onInputData?(event.data)
-            case .control: self?.onControlData?(event.data)
+            case .control:
+                if let cb = self?.onControlData {
+                    cb(event.data)
+                } else {
+                    self?.pendingControlData.append(event.data)
+                }
             default: break
             }
         }
@@ -297,14 +435,16 @@ public final class NetworkManager: ObservableObject {
         sleepObserver = ws.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            print("[net] System going to sleep, pausing connections")
+            print("[net] System going to sleep, suspending networking")
             self?.clipboardSharing.stopMonitoring()
+            self?.suspendNetworking()
         }
         wakeObserver = ws.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            print("[net] System woke up, resuming connections")
+            print("[net] System woke up, resuming networking")
             self?.clipboardSharing.startMonitoring()
+            self?.resumeNetworking()
             Task { @MainActor in
                 guard let self else { return }
                 if self.isHosting {
@@ -313,6 +453,38 @@ public final class NetworkManager: ObservableObject {
             }
         }
         #endif
+
+        // Monitor network path changes (WiFi reconnect, IP change, etc.)
+        // and re-announce DHT topic so the host stays discoverable.
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in
+                guard let self else { return }
+                let prev = self.lastNetworkPath
+                self.lastNetworkPath = path
+
+                // Only re-announce if the path actually changed and we're hosting
+                guard self.isHosting else { return }
+                guard path.status == .satisfied else { return }
+
+                // Skip the initial callback (no previous path)
+                guard let prev else { return }
+
+                // Re-announce if interface changed or path was previously unsatisfied
+                if prev.status != .satisfied || self.networkInterfacesChanged(prev, path) {
+                    self.debugLog("[net] Network path changed, re-announcing DHT topic")
+                    self.bareBridge.sendReannounce()
+                }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "peariscope.network-monitor"))
+        networkMonitor = monitor
+    }
+
+    private nonisolated func networkInterfacesChanged(_ old: NWPath, _ new: NWPath) -> Bool {
+        let oldIfaces = Set(old.availableInterfaces.map { $0.name })
+        let newIfaces = Set(new.availableInterfaces.map { $0.name })
+        return oldIfaces != newIfaces
     }
 
     // MARK: - Runtime startup
@@ -326,6 +498,8 @@ public final class NetworkManager: ObservableObject {
 
     private func debugLog(_ msg: String) {
         NSLog("%@", msg)
+        // Also fire onJSLog so iOS connecting diagnostics UI shows native logs
+        onJSLog?(msg)
         let ts = ISO8601DateFormatter().string(from: Date())
         if let data = "[\(ts)] \(msg)\n".data(using: .utf8) {
             Self.logFile?.seekToEndOfFile()
@@ -333,8 +507,121 @@ public final class NetworkManager: ObservableObject {
         }
     }
 
+    // MARK: - DHT Node Cache
+
+    private static let dhtCacheKey = "peariscope.cachedDhtNodes"
+    /// Nodes older than 7 days are expired
+    private static let dhtNodeMaxAge: TimeInterval = 7 * 24 * 3600 * 1000 // ms (matches JS Date.now())
+
+    /// Merge incoming DHT nodes with existing cache: dedup by host:port,
+    /// update lastSeen timestamps, expire stale nodes, prioritize non-standard ports.
+    private func mergeDhtNodesCache(_ incoming: [[String: Any]]) {
+        // Load existing cache
+        var nodeMap: [String: [String: Any]] = [:]
+        let existing = Self.loadCachedDhtNodes()
+        for node in existing {
+            if let host = node["host"] as? String, let port = node["port"] as? Int {
+                nodeMap["\(host):\(port)"] = node
+            }
+        }
+
+        // Merge incoming — newer lastSeen wins
+        let now = Date().timeIntervalSince1970 * 1000
+        for node in incoming {
+            guard let host = node["host"] as? String, let port = node["port"] as? Int else { continue }
+            let key = "\(host):\(port)"
+            let incomingLastSeen = (node["lastSeen"] as? Double) ?? now
+            if let existing = nodeMap[key], let existingLastSeen = existing["lastSeen"] as? Double {
+                if incomingLastSeen > existingLastSeen {
+                    nodeMap[key] = ["host": host, "port": port, "lastSeen": incomingLastSeen]
+                }
+            } else {
+                nodeMap[key] = ["host": host, "port": port, "lastSeen": incomingLastSeen]
+            }
+        }
+
+        // Expire old nodes
+        let cutoff = now - Self.dhtNodeMaxAge
+        var nodes = nodeMap.values.filter { node in
+            guard let lastSeen = node["lastSeen"] as? Double else { return false }
+            return lastSeen > cutoff
+        }
+
+        // Sort: non-standard ports first (CGNAT bypass value), then by recency
+        nodes.sort { a, b in
+            let aPort = (a["port"] as? Int) ?? 49737
+            let bPort = (b["port"] as? Int) ?? 49737
+            let aStd = aPort == 49737
+            let bStd = bPort == 49737
+            if aStd != bStd { return bStd } // non-standard first
+            let aTime = (a["lastSeen"] as? Double) ?? 0
+            let bTime = (b["lastSeen"] as? Double) ?? 0
+            return aTime > bTime
+        }
+
+        // Cap at 200 nodes
+        if nodes.count > 200 { nodes = Array(nodes.prefix(200)) }
+
+        let nonStd = nodes.filter { ($0["port"] as? Int) != 49737 }.count
+        debugLog("[net] DHT cache merged: \(nodes.count) nodes (\(nonStd) non-std ports, expired \(nodeMap.count - nodes.count))")
+
+        if let data = try? JSONSerialization.data(withJSONObject: nodes) {
+            UserDefaults.standard.set(data, forKey: Self.dhtCacheKey)
+        }
+    }
+
+    /// Load cached DHT nodes, filtering expired entries.
+    static func loadCachedDhtNodes() -> [[String: Any]] {
+        guard let data = UserDefaults.standard.data(forKey: dhtCacheKey),
+              let nodes = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+        let now = Date().timeIntervalSince1970 * 1000
+        let cutoff = now - dhtNodeMaxAge
+        return nodes.filter { node in
+            guard let lastSeen = node["lastSeen"] as? Double else { return true } // keep legacy nodes without timestamps
+            return lastSeen > cutoff
+        }
+    }
+
+    /// Write diagnostic to a file since NSLog is suppressed on iOS 26
+    private func diagWrite(_ msg: String) {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let path = docs.appendingPathComponent("peariscope-diag.txt")
+        let line = "\(Date()): \(msg)\n"
+        if let data = line.data(using: .utf8) {
+            if let fh = try? FileHandle(forWritingTo: path) {
+                fh.seekToEndOfFile()
+                fh.write(data)
+                fh.closeFile()
+            } else {
+                try? data.write(to: path)
+            }
+        }
+    }
+
     public func startRuntime() async throws {
+        diagWrite("startRuntime() called, useBareKit=\(useBareKit), isAlive=\(bareBridge.isAlive)")
         debugLog("[net] startRuntime() called")
+
+        // Check if an OTA bundle was applied on this launch
+        let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let otaVersionURL = docsDir.appendingPathComponent("worklet-ota.version")
+        let otaBundleURL = docsDir.appendingPathComponent("worklet-ota.bundle")
+        if FileManager.default.fileExists(atPath: otaBundleURL.path),
+           let version = try? String(contentsOf: otaVersionURL, encoding: .utf8) {
+            otaStatus = .applied(version: version)
+            debugLog("[ota] Running OTA worklet v\(version)")
+            // Delete version file so banner doesn't re-appear on next launch
+            try? FileManager.default.removeItem(at: otaVersionURL)
+            // Auto-dismiss after 8 seconds
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(8))
+                if case .applied = self.otaStatus { self.otaStatus = .idle }
+            }
+        }
+
         // Guard against double-start (e.g. new SwiftUI window re-running .task)
         if useBareKit && bareBridge.isAlive {
             debugLog("[net] startRuntime() skipped — already running")
@@ -342,13 +629,33 @@ public final class NetworkManager: ObservableObject {
         }
         // Try BareKit (works on both macOS and iOS)
         let assetsPath = resolvePearAssetsPath()
+        diagWrite("assetsPath=\(assetsPath ?? "nil")")
         debugLog("[net] assetsPath: \(assetsPath ?? "nil")")
         if let assetsPath, FileManager.default.fileExists(atPath: assetsPath + "/worklet.bundle") {
             debugLog("[net] worklet.bundle found, starting BareKit...")
             do {
+                diagWrite("calling bareBridge.start(assetsPath: \(assetsPath))")
                 try bareBridge.start(assetsPath: assetsPath)
                 useBareKit = true
+                diagWrite("BareKit started OK, isAlive=\(bareBridge.isAlive)")
                 debugLog("[net] Started Pear runtime via BareKit")
+
+                // Send cached DHT nodes + keypair to worklet for faster bootstrap
+                // and identity persistence (same keypair = same NAT mappings on CGNAT)
+                let freshNodes = Self.loadCachedDhtNodes()
+                let cachedKeypair: (publicKey: String, secretKey: String)?
+                if let pubKey = UserDefaults.standard.string(forKey: "peariscope.dhtPublicKey"),
+                   let secKey = UserDefaults.standard.string(forKey: "peariscope.dhtSecretKey"),
+                   pubKey.count == 64 && secKey.count == 128 {
+                    cachedKeypair = (publicKey: pubKey, secretKey: secKey)
+                    debugLog("[net] Sending cached keypair: \(pubKey.prefix(16))...")
+                } else {
+                    cachedKeypair = nil
+                }
+                if !freshNodes.isEmpty || cachedKeypair != nil {
+                    debugLog("[net] Sending \(freshNodes.count) cached DHT nodes to worklet")
+                    bareBridge.sendCachedDhtNodes(freshNodes, keypair: cachedKeypair)
+                }
                 return
             } catch {
                 debugLog("[net] BareKit failed: \(error.localizedDescription)")
@@ -404,14 +711,22 @@ public final class NetworkManager: ObservableObject {
         debugLog("[net] startHosting() called, useBareKit=\(useBareKit), savedCode=\(savedCode ?? "nil")")
         if useBareKit {
             bareBridge.startHosting(deviceCode: savedCode)
-            // Retry if connectionCode isn't set within 2 seconds
-            // (IPC command can get lost among video frame flood)
+            // Retry if connectionCode isn't set within 2 seconds.
+            // First try requesting status (recovers code without re-triggering hosting).
+            // Only re-send START_HOSTING as last resort.
             Task { @MainActor in
-                for attempt in 1...3 {
+                for attempt in 1...5 {
                     try? await Task.sleep(for: .seconds(2))
                     if self.connectionCode != nil { return }
-                    self.debugLog("[net] startHosting retry \(attempt), connectionCode still nil")
-                    self.bareBridge.startHosting(deviceCode: savedCode)
+                    if attempt <= 3 {
+                        // Ask for status — worklet may already be hosting but HOSTING_STARTED
+                        // was stuck in IPC backpressure behind swarm.join DHT ops
+                        self.debugLog("[net] startHosting: requesting status (attempt \(attempt)), connectionCode still nil")
+                        self.bareBridge.requestStatus()
+                    } else {
+                        self.debugLog("[net] startHosting retry \(attempt), connectionCode still nil")
+                        self.bareBridge.startHosting(deviceCode: savedCode)
+                    }
                 }
             }
         } else {
@@ -451,15 +766,31 @@ public final class NetworkManager: ObservableObject {
     // MARK: - Connecting
 
     public func connect(code: String) async throws {
+        // Clean up any stale state from previous connections before starting new one.
+        // This is critical: if the previous peer disconnected on their end, the JS worklet
+        // may still have the old swarm topic joined. Without this cleanup, the swarm
+        // reconnects to the OLD peer instead of finding the new one.
+        reconnectionManager.cancelAll()
+        if useBareKit && bareBridge.isAlive {
+            bareBridge.disconnectAllPeers()
+        }
+        connectedPeers.removeAll()
+        isConnected = false
+
         suppressConnections = false
         lastConnectionCode = code
         isConnecting = true
+        diagWrite("connect() code=\(code.prefix(30))... useBareKit=\(useBareKit) isAlive=\(bareBridge.isAlive)")
+        debugLog("[net] connect() called: code=\(code.prefix(30))... useBareKit=\(useBareKit) isAlive=\(bareBridge.isAlive)")
+        // Ensure runtime is started — on iOS, startRuntime() is deferred until first connect
+        // so useBareKit may still be false here. Start it now if needed.
+        if !useBareKit || !bareBridge.isAlive {
+            debugLog("[net] Starting/restarting runtime before connect")
+            try await startRuntime()
+            debugLog("[net] Runtime started, useBareKit=\(useBareKit) isAlive=\(bareBridge.isAlive)")
+        }
         if useBareKit {
-            // Restart worklet if it was terminated (e.g. by memory pressure)
-            if !bareBridge.isAlive {
-                NSLog("[net] Worklet is dead, restarting runtime before connect")
-                try await startRuntime()
-            }
+            debugLog("[net] Sending CONNECT_TO_PEER to worklet")
             bareBridge.connectToPeer(code: code)
         } else {
             var connectMsg = Peariscope_ConnectToPeer()
@@ -467,6 +798,32 @@ public final class NetworkManager: ObservableObject {
             _ = try await ipcClient.request { msg in
                 msg.connectToPeer = connectMsg
             }
+        }
+    }
+
+    /// Connect to a LAN-discovered peer by injecting its local address into the DHT.
+    /// Falls back to regular DHT-based connect if host/port are unavailable.
+    public func connectLocal(code: String, hostIP: String, dhtPort: UInt16) async throws {
+        reconnectionManager.cancelAll()
+        if useBareKit && bareBridge.isAlive {
+            bareBridge.disconnectAllPeers()
+        }
+        connectedPeers.removeAll()
+        isConnected = false
+
+        suppressConnections = false
+        lastConnectionCode = code
+        isConnecting = true
+        debugLog("[net] connectLocal() called: code=\(code.prefix(30))... host=\(hostIP):\(dhtPort)")
+        if !useBareKit || !bareBridge.isAlive {
+            debugLog("[net] Starting/restarting runtime before local connect")
+            try await startRuntime()
+        }
+        if useBareKit {
+            bareBridge.connectLocalPeer(code: code, host: hostIP, port: dhtPort)
+        } else {
+            // Legacy path doesn't support local connect — fall through to DHT
+            try await connect(code: code)
         }
     }
 
@@ -531,6 +888,20 @@ public final class NetworkManager: ObservableObject {
         }
     }
 
+    public func sendAudioData(_ data: Data, streamId: UInt32) throws {
+        if useBareKit {
+            bareBridge.sendStreamData(streamId: streamId, channel: 3, data: data)
+        } else {
+            var streamData = Peariscope_StreamData()
+            streamData.streamID = streamId
+            streamData.channel = .audio
+            streamData.data = data
+            var msg = Peariscope_IpcMessage()
+            msg.streamData = streamData
+            try ipcClient.send(msg)
+        }
+    }
+
     public func sendControlData(_ data: Data, streamId: UInt32) throws {
         if useBareKit {
             bareBridge.sendStreamData(streamId: streamId, channel: 2, data: data)
@@ -551,14 +922,19 @@ public final class NetworkManager: ObservableObject {
         reconnectionManager.cancelAll()
         lastConnectionCode = nil
         suppressConnections = true
-        for peer in connectedPeers {
-            if useBareKit {
-                bareBridge.disconnect(peerKeyHex: peer.id)
-            }
+        pendingControlData.removeAll()
+        // Always tell JS to disconnect all peers and leave all swarm topics.
+        // connectedPeers may already be empty (peer disconnected before us),
+        // but JS may still have the topic joined → stale reconnections.
+        if useBareKit && bareBridge.isAlive {
+            bareBridge.disconnectAllPeers()
         }
         connectedPeers.removeAll()
         isConnected = false
         isConnecting = false
+        // suppressConnections stays true until the next explicit connect() or
+        // startHosting() call. This prevents Hyperswarm from re-establishing
+        // the connection after the user explicitly disconnects.
     }
 
     public func disconnect(peerKey: Data) async throws {
@@ -627,6 +1003,16 @@ public final class NetworkManager: ObservableObject {
             bareBridge.resume()
             debugLog("[net] BareKit worklet resumed")
         }
+    }
+
+    public func suspendNetworking() {
+        bareBridge.sendSuspend()
+        debugLog("[net] Sent suspend to worklet")
+    }
+
+    public func resumeNetworking() {
+        bareBridge.sendResume()
+        debugLog("[net] Sent resume to worklet")
     }
 
     public func enableClipboardSharing() {

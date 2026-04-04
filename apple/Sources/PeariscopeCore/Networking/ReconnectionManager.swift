@@ -18,14 +18,14 @@ public final class ReconnectionManager: @unchecked Sendable {
     private let baseDelay: TimeInterval = 2.0
     private let maxDelay: TimeInterval = 30.0
     private var timers: [String: Task<Void, Never>] = [:]
-    private let queue = DispatchQueue(label: "peariscope.reconnect")
+    private let lock = NSLock()
 
     public init() {}
 
     /// Register a peer for reconnection attempts
     public func peerDisconnected(code: String, peerKey: Data) {
         let keyHex = peerKey.map { String(format: "%02x", $0) }.joined()
-        queue.sync {
+        lock.withLock {
             let record = PeerRecord(connectionCode: code, peerKey: peerKey, attempts: 0, lastAttempt: Date())
             disconnectedPeers[keyHex] = record
         }
@@ -35,7 +35,7 @@ public final class ReconnectionManager: @unchecked Sendable {
     /// Call when peer successfully reconnects — cancels further attempts
     public func peerReconnected(peerKey: Data) {
         let keyHex = peerKey.map { String(format: "%02x", $0) }.joined()
-        queue.sync {
+        lock.withLock {
             disconnectedPeers.removeValue(forKey: keyHex)
             timers[keyHex]?.cancel()
             timers.removeValue(forKey: keyHex)
@@ -44,7 +44,7 @@ public final class ReconnectionManager: @unchecked Sendable {
 
     /// Cancel all reconnection attempts
     public func cancelAll() {
-        queue.sync {
+        lock.withLock {
             for (_, task) in timers { task.cancel() }
             timers.removeAll()
             disconnectedPeers.removeAll()
@@ -52,7 +52,7 @@ public final class ReconnectionManager: @unchecked Sendable {
     }
 
     private func scheduleReconnect(keyHex: String) {
-        let (record, shouldGiveUp) = queue.sync { () -> (PeerRecord?, Bool) in
+        let (record, shouldGiveUp) = lock.withLock { () -> (PeerRecord?, Bool) in
             guard var record = disconnectedPeers[keyHex] else {
                 return (nil, false)
             }
@@ -80,13 +80,13 @@ public final class ReconnectionManager: @unchecked Sendable {
             try? await Task.sleep(for: .seconds(totalDelay))
             guard !Task.isCancelled else { return }
             guard let self else { return }
-            let currentRecord = self.queue.sync { self.disconnectedPeers[keyHex] }
+            let currentRecord = self.lock.withLock { self.disconnectedPeers[keyHex] }
             guard let currentRecord else { return }
             self.onReconnectAttempt?(currentRecord)
             self.scheduleReconnect(keyHex: keyHex)
         }
 
-        queue.sync {
+        lock.withLock {
             timers[keyHex] = task
         }
     }

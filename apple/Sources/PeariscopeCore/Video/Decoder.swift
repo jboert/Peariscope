@@ -13,6 +13,12 @@ public final class H264Decoder: @unchecked Sendable {
     /// Called with decoded pixel buffers ready for rendering
     public var onDecodedFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
+    /// Optional log callback for diagnostics (fires from decoder serial queue)
+    public var onLog: ((String) -> Void)?
+
+    /// Whether the VT decompression session has been created (SPS+PPS received)
+    public var hasSession: Bool { session != nil }
+
     // Stored SPS/PPS for creating format descriptions
     private var sps: Data?
     private var pps: Data?
@@ -20,11 +26,22 @@ public final class H264Decoder: @unchecked Sendable {
     /// Limit queued blocks to prevent burst data from accumulating on the serial queue.
     private let pendingLock = NSLock()
     private var queuedBlocks: Int = 0
+    #if os(iOS)
     private static let maxQueuedBlocks = 2
+    #else
+    private static let maxQueuedBlocks = 8  // macOS has plenty of memory
+    #endif
 
     /// Time gate: drop frames arriving faster than display refresh.
     private var lastAcceptTime: CFAbsoluteTime = 0
-    private static let minAcceptInterval: CFAbsoluteTime = 1.0 / 61.0
+    private static let minAcceptInterval: CFAbsoluteTime = 1.0 / 61.0 // ~60fps
+
+    /// Track when queuedBlocks last hit max — reset if stuck too long
+    private var queuedBlocksFullSince: CFAbsoluteTime = 0
+
+    // Decode error tracking
+    private var consecutiveDecodeErrors: Int = 0
+    private var totalDecodeErrors: Int = 0
 
     // Diagnostics
     private var decodeCount: Int = 0
@@ -32,9 +49,24 @@ public final class H264Decoder: @unchecked Sendable {
 
     public init() {}
 
+    /// Force-recreate the VT session. Called when the viewer detects prolonged freeze.
+    public func resetSession() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            NSLog("[h264] resetSession: forcing session recreation")
+            self.consecutiveDecodeErrors = 0
+            self.recreateSession()
+            // Reset queuedBlocks in case it's stuck
+            self.pendingLock.lock()
+            self.queuedBlocks = 0
+            self.queuedBlocksFullSince = 0
+            self.pendingLock.unlock()
+        }
+    }
+
     /// Diagnostic summary — called from heartbeat.
     public func diagnosticSummary() -> String {
-        return "decoded=\(decodeCount) uniqueBufs=\(uniqueBufferAddresses.count)"
+        return "decoded=\(decodeCount) uniqueBufs=\(uniqueBufferAddresses.count) errs(consecutive=\(consecutiveDecodeErrors) total=\(totalDecodeErrors))"
     }
 
     /// Feed Annex B formatted H.264 data from the network
@@ -46,6 +78,7 @@ public final class H264Decoder: @unchecked Sendable {
         // provides a higher-level safety net.
         let availMB = os_proc_available_memory() / 1_048_576
         if availMB > 0 && availMB < 150 {
+            NSLog("[h264-diag] MEMORY GATE: dropping frame, mem=\(availMB)MB len=\(annexBData.count)")
             return
         }
         #endif
@@ -61,8 +94,20 @@ public final class H264Decoder: @unchecked Sendable {
         }
         lastAcceptTime = now
         if queuedBlocks >= Self.maxQueuedBlocks {
-            pendingLock.unlock()
-            return
+            // If stuck at max for >2 seconds, the decode queue is probably blocked.
+            // Reset the counter to unblock frame processing.
+            if queuedBlocksFullSince == 0 {
+                queuedBlocksFullSince = now
+            } else if now - queuedBlocksFullSince > 2.0 {
+                NSLog("[h264] queuedBlocks stuck at %d for >2s, resetting", queuedBlocks)
+                queuedBlocks = 0
+                queuedBlocksFullSince = 0
+            } else {
+                pendingLock.unlock()
+                return
+            }
+        } else {
+            queuedBlocksFullSince = 0
         }
         queuedBlocks += 1
         pendingLock.unlock()
@@ -82,9 +127,23 @@ public final class H264Decoder: @unchecked Sendable {
     private func _decode(annexBData: Data) {
         let nalUnits = parseAnnexB(annexBData)
 
+        if decodeCount == 0 && nalUnits.isEmpty {
+            NSLog("[h264-diag] FIRST FRAME: no NAL units found in %d bytes — not Annex B?", annexBData.count)
+            if annexBData.count >= 8 {
+                let header = annexBData.prefix(8).map { String(format: "%02x", $0) }.joined(separator: " ")
+                NSLog("[h264-diag] FIRST FRAME header: %@", header)
+            }
+        }
+
         for nal in nalUnits {
             guard !nal.isEmpty else { continue }
             let nalType = nal[0] & 0x1F
+
+            if decodeCount == 0 {
+                NSLog("[h264-diag] NAL type=%d size=%d hasSession=%@ hasSPS=%@ hasPPS=%@",
+                      nalType, nal.count, session != nil ? "yes" : "no",
+                      sps != nil ? "yes" : "no", pps != nil ? "yes" : "no")
+            }
 
             switch nalType {
             case 7: // SPS
@@ -97,9 +156,20 @@ public final class H264Decoder: @unchecked Sendable {
                     updateFormatDescription()
                 }
             case 1, 5: // Non-IDR slice, IDR slice
-                if nalType == 5 { NSLog("[h264] IDR slice (%d bytes), session=%@", nal.count, session != nil ? "yes" : "no") }
+                if nalType == 5 {
+                    NSLog("[h264] IDR (%d bytes), session=%@", nal.count, session != nil ? "yes" : "no")
+                    // Recreate session on IDR if previous decodes were failing.
+                    // VT sessions can enter an unrecoverable error state after
+                    // corrupt frames — a fresh session + IDR resets everything.
+                    if consecutiveDecodeErrors > 3 {
+                        NSLog("[h264] Recreating session after %d consecutive errors", consecutiveDecodeErrors)
+                        consecutiveDecodeErrors = 0
+                        recreateSession()
+                    }
+                }
                 decodeNALUnit(nal)
             default:
+                NSLog("[h264-diag] Unknown NAL type=%d size=%d", nalType, nal.count)
                 break
             }
         }
@@ -134,14 +204,10 @@ public final class H264Decoder: @unchecked Sendable {
             }
         }
 
-        guard status == noErr, let newFormatDesc else {
-            NSLog("[h264] Failed to create format description: %d", status)
-            return
-        }
+        guard status == noErr, let newFormatDesc else { return }
 
         if formatDescription == nil || !CMFormatDescriptionEqual(formatDescription!, otherFormatDescription: newFormatDesc) {
             formatDescription = newFormatDesc
-            NSLog("[h264] Format description created, recreating session")
             recreateSession()
         }
     }
@@ -171,11 +237,7 @@ public final class H264Decoder: @unchecked Sendable {
             decompressionSessionOut: &session
         )
 
-        guard status == noErr else {
-            NSLog("[h264] Failed to create decompression session: %d", status)
-            return
-        }
-        NSLog("[h264] Decompression session created")
+        guard status == noErr else { return }
         self.session = session
 
         if let session {
@@ -237,27 +299,42 @@ public final class H264Decoder: @unchecked Sendable {
 
         guard let sampleBuffer else { return }
 
-        // Synchronous decode: blocks until VT returns the pixel buffer.
-        // flags: [] (no ._EnableAsynchronousDecompression) requests synchronous,
-        // but iOS hardware decoders may still decode asynchronously.
-        // WaitForAsynchronousFrames after each decode ENFORCES synchronous behavior,
-        // keeping VT's pixel buffer pool to 1-2 buffers and preventing the
-        // multi-GB memory spike from unbounded async pool growth.
         var infoFlags = VTDecodeInfoFlags()
-        VTDecompressionSessionDecodeFrame(
+        let decodeStart = CFAbsoluteTimeGetCurrent()
+        let decodeStatus = VTDecompressionSessionDecodeFrame(
             session,
             sampleBuffer: sampleBuffer,
             flags: [],
             infoFlagsOut: &infoFlags,
             outputHandler: { [weak self] status, _, imageBuffer, pts, _ in
-                guard status == noErr, let imageBuffer else { return }
+                guard status == noErr, let imageBuffer else {
+                    if status != noErr {
+                        self?.consecutiveDecodeErrors += 1
+                        self?.totalDecodeErrors += 1
+                    }
+                    return
+                }
+                self?.consecutiveDecodeErrors = 0
+                self?.decodeCount += 1
                 self?.onDecodedFrame?(imageBuffer, pts)
             }
         )
-        // Force-wait for any async decode to complete before returning.
-        // Without this, VT on iOS allocates a new pool buffer per frame (~7.4MB at 3440x1440),
-        // consuming ~2.7GB in seconds at 60fps.
+
+        if decodeStatus != noErr {
+            consecutiveDecodeErrors += 1
+            totalDecodeErrors += 1
+            NSLog("[h264] DecodeFrame error: %d (consecutive: %d)", decodeStatus, consecutiveDecodeErrors)
+            return
+        }
+
+        // Wait for decode to complete. This prevents unbounded pixel buffer pool growth.
         VTDecompressionSessionWaitForAsynchronousFrames(session)
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - decodeStart
+        if elapsed > 0.5 {
+            NSLog("[h264] SLOW decode: %.1fms — recreating session", elapsed * 1000)
+            recreateSession()
+        }
     }
 
     /// Parse Annex B byte stream into individual NAL units (without start codes).

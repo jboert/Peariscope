@@ -11,11 +11,26 @@ public final class H265Decoder: @unchecked Sendable {
     private let queue = DispatchQueue(label: "peariscope.h265decoder", qos: .userInteractive)
 
     public var onDecodedFrame: ((CVPixelBuffer, CMTime) -> Void)?
+    public var onLog: ((String) -> Void)?
+    /// Fired (at most once) when consecutive decode errors exceed threshold — viewer should request H.264 fallback
+    public var onCodecFallbackNeeded: (() -> Void)?
 
     // HEVC parameter sets
     private var vps: Data?
     private var sps: Data?
     private var pps: Data?
+
+    /// Force-recreate the VT session. Called when the viewer detects prolonged freeze.
+    public func resetSession() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            NSLog("[h265] resetSession: forcing session recreation")
+            self.recreateSession()
+            self.pendingLock.lock()
+            self.queuedBlocks = 0
+            self.pendingLock.unlock()
+        }
+    }
 
     /// Limit queued blocks to prevent burst data from accumulating on the serial queue.
     private let pendingLock = NSLock()
@@ -26,6 +41,11 @@ public final class H265Decoder: @unchecked Sendable {
     /// from allocating hundreds of pixel buffers during network burst delivery.
     private var lastAcceptTime: CFAbsoluteTime = 0
     private static let minAcceptInterval: CFAbsoluteTime = 1.0 / 61.0 // ~60fps
+
+    // Decode error tracking for codec fallback
+    private var consecutiveDecodeErrors: Int = 0
+    private var totalDecodeErrors: Int = 0
+    private var fallbackRequested: Bool = false
 
     // Diagnostics: track VT pool behavior
     private var decodeCount: Int = 0
@@ -103,7 +123,7 @@ public final class H265Decoder: @unchecked Sendable {
         pendingLock.lock()
         let queued = queuedBlocks
         pendingLock.unlock()
-        return "decoded=\(decodeCount) uniqueBufs=\(uniqueBufferAddresses.count) queued=\(queued) entries=\(decodeEntryCount) threads=\(callerThreads.count) drops(time=\(timeGateDrops) queue=\(queueFullDrops) mem=\(memoryGateDrops)) mem=\(availMB)MB"
+        return "decoded=\(decodeCount) uniqueBufs=\(uniqueBufferAddresses.count) queued=\(queued) entries=\(decodeEntryCount) threads=\(callerThreads.count) drops(time=\(timeGateDrops) queue=\(queueFullDrops) mem=\(memoryGateDrops)) errs(consecutive=\(consecutiveDecodeErrors) total=\(totalDecodeErrors)) mem=\(availMB)MB"
     }
 
     private func _decode(annexBData: Data) {
@@ -209,6 +229,13 @@ public final class H265Decoder: @unchecked Sendable {
 
         guard status == noErr else {
             NSLog("[h265] Failed to create decompression session: %d", status)
+            consecutiveDecodeErrors += 1
+            totalDecodeErrors += 1
+            if consecutiveDecodeErrors >= 10 && !fallbackRequested {
+                fallbackRequested = true
+                NSLog("[h265] Session creation failing, requesting codec fallback")
+                onCodecFallbackNeeded?()
+            }
             return
         }
         NSLog("[h265] Decompression session created")
@@ -273,10 +300,6 @@ public final class H265Decoder: @unchecked Sendable {
 
         guard let sampleBuffer else { return }
 
-        #if os(iOS)
-        let memBefore = os_proc_available_memory() / 1_048_576
-        #endif
-
         // Synchronous decode: blocks until VT returns the pixel buffer.
         // flags: [] (no ._EnableAsynchronousDecompression) requests synchronous,
         // but iOS hardware decoders may still decode asynchronously.
@@ -292,30 +315,24 @@ public final class H265Decoder: @unchecked Sendable {
             outputHandler: { [weak self] status, _, imageBuffer, pts, _ in
                 guard status == noErr, let imageBuffer else {
                     if status != noErr {
-                        NSLog("[h265-diag] VT decode error: %d", status)
+                        self?.consecutiveDecodeErrors += 1
+                        self?.totalDecodeErrors += 1
+                        let consecutive = self?.consecutiveDecodeErrors ?? 0
+                        let total = self?.totalDecodeErrors ?? 0
+                        NSLog("[h265-diag] VT decode error: %d (consecutive=%d total=%d)", status, consecutive, total)
+                        if consecutive >= 10, self?.fallbackRequested == false {
+                            self?.fallbackRequested = true
+                            NSLog("[h265] Consecutive decode errors >= 10, requesting codec fallback")
+                            self?.onCodecFallbackNeeded?()
+                        }
                     }
                     return
                 }
+                self?.consecutiveDecodeErrors = 0
                 // Track unique pixel buffer addresses to detect pool growth
                 let addr = UInt(bitPattern: Unmanaged.passUnretained(imageBuffer).toOpaque())
                 self?.uniqueBufferAddresses.insert(addr)
                 self?.decodeCount += 1
-                let dc = self?.decodeCount ?? 0
-                let unique = self?.uniqueBufferAddresses.count ?? 0
-                if dc <= 20 || dc % 60 == 0 {
-                    let w = CVPixelBufferGetWidth(imageBuffer)
-                    let h = CVPixelBufferGetHeight(imageBuffer)
-                    let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
-                    let bufSize = bytesPerRow * h
-                    #if os(iOS)
-                    let memNow = os_proc_available_memory() / 1_048_576
-                    NSLog("[h265-diag] decoded #%d: %dx%d bpr=%d bufSize=%.1fMB addr=0x%lx unique=%d mem=%dMB",
-                          dc, w, h, bytesPerRow, Double(bufSize) / 1_048_576.0, addr, unique, memNow)
-                    #else
-                    NSLog("[h265-diag] decoded #%d: %dx%d bpr=%d bufSize=%.1fMB addr=0x%lx unique=%d",
-                          dc, w, h, bytesPerRow, Double(bufSize) / 1_048_576.0, addr, unique)
-                    #endif
-                }
                 self?.onDecodedFrame?(imageBuffer, pts)
             }
         )
@@ -323,15 +340,6 @@ public final class H265Decoder: @unchecked Sendable {
         // Without this, VT on iOS allocates a new pool buffer per frame (~7.4MB at 3440x1440),
         // consuming ~2.7GB in seconds at 60fps.
         VTDecompressionSessionWaitForAsynchronousFrames(session)
-
-        #if os(iOS)
-        let memAfter = os_proc_available_memory() / 1_048_576
-        let delta = Int64(memBefore) - Int64(memAfter)
-        if decodeCount <= 20 || decodeCount % 60 == 0 || delta > 50 {
-            NSLog("[h265-diag] VT decode+wait #%d: memBefore=%dMB memAfter=%dMB delta=%lldMB nalSize=%d",
-                  decodeCount, memBefore, memAfter, delta, nalData.count)
-        }
-        #endif
     }
 
     /// Parse Annex B byte stream into individual NAL units (without start codes).
@@ -381,10 +389,14 @@ public final class H265Decoder: @unchecked Sendable {
                 self.session = nil
             }
             self.onDecodedFrame = nil
+            self.onCodecFallbackNeeded = nil
             formatDescription = nil
             vps = nil
             sps = nil
             pps = nil
+            consecutiveDecodeErrors = 0
+            totalDecodeErrors = 0
+            fallbackRequested = false
         }
     }
 }

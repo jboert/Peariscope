@@ -26,6 +26,7 @@ public enum Peariscope_StreamChannel: SwiftProtobuf.Enum, Swift.CaseIterable {
   case video // = 0
   case input // = 1
   case control // = 2
+  case audio // = 3
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -37,6 +38,7 @@ public enum Peariscope_StreamChannel: SwiftProtobuf.Enum, Swift.CaseIterable {
     case 0: self = .video
     case 1: self = .input
     case 2: self = .control
+    case 3: self = .audio
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -46,6 +48,7 @@ public enum Peariscope_StreamChannel: SwiftProtobuf.Enum, Swift.CaseIterable {
     case .video: return 0
     case .input: return 1
     case .control: return 2
+    case .audio: return 3
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -55,6 +58,7 @@ public enum Peariscope_StreamChannel: SwiftProtobuf.Enum, Swift.CaseIterable {
     .video,
     .input,
     .control,
+    .audio,
   ]
 
 }
@@ -624,6 +628,22 @@ public struct Peariscope_ControlMessage: Sendable {
     set {msg = .cursorPosition(newValue)}
   }
 
+  public var ping: Peariscope_Ping {
+    get {
+      if case .ping(let v)? = msg {return v}
+      return Peariscope_Ping()
+    }
+    set {msg = .ping(newValue)}
+  }
+
+  public var pong: Peariscope_Pong {
+    get {
+      if case .pong(let v)? = msg {return v}
+      return Peariscope_Pong()
+    }
+    set {msg = .pong(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public enum OneOf_Msg: Equatable, Sendable {
@@ -637,8 +657,38 @@ public struct Peariscope_ControlMessage: Sendable {
     case displayList(Peariscope_DisplayList)
     case switchDisplay(Peariscope_SwitchDisplay)
     case cursorPosition(Peariscope_CursorPosition)
+    case ping(Peariscope_Ping)
+    case pong(Peariscope_Pong)
 
   }
+
+  public init() {}
+}
+
+/// RTT measurement: host sends Ping with timestamp, viewer echoes back as Pong.
+/// Host computes RTT = now - pong.timestamp. No clock sync needed.
+public struct Peariscope_Ping: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Host's local time in ms (CFAbsoluteTimeGetCurrent * 1000)
+  public var timestampMs: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Peariscope_Pong: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Echoed from Ping — host uses this to compute RTT
+  public var timestampMs: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -798,6 +848,12 @@ public struct Peariscope_QualityReport: Sendable {
   /// Viewer's native screen height in pixels
   public var screenHeight: UInt32 = 0
 
+  /// Viewer's actual received throughput in kbps
+  public var receivedKbps: UInt32 = 0
+
+  /// Inter-frame arrival time variance in ms
+  public var jitterMs: Float = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -809,6 +865,9 @@ public struct Peariscope_ClipboardData: Sendable {
   // methods supported on all messages.
 
   public var text: String = String()
+
+  /// PNG-encoded image data (screenshots, copied images)
+  public var imagePng: Data = Data()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -862,7 +921,7 @@ public struct Peariscope_PeerInfo: Sendable {
 fileprivate let _protobuf_package = "peariscope"
 
 extension Peariscope_StreamChannel: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0STREAM_CHANNEL_VIDEO\0\u{1}STREAM_CHANNEL_INPUT\0\u{1}STREAM_CHANNEL_CONTROL\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0STREAM_CHANNEL_VIDEO\0\u{1}STREAM_CHANNEL_INPUT\0\u{1}STREAM_CHANNEL_CONTROL\0\u{1}STREAM_CHANNEL_AUDIO\0")
 }
 
 extension Peariscope_Codec: SwiftProtobuf._ProtoNameProviding {
@@ -1801,7 +1860,7 @@ extension Peariscope_ScrollEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
 extension Peariscope_ControlMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ControlMessage"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}codec_negotiation\0\u{3}request_idr\0\u{3}quality_report\0\u{1}clipboard\0\u{3}frame_timestamp\0\u{3}peer_challenge\0\u{3}peer_challenge_response\0\u{3}display_list\0\u{3}switch_display\0\u{3}cursor_position\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}codec_negotiation\0\u{3}request_idr\0\u{3}quality_report\0\u{1}clipboard\0\u{3}frame_timestamp\0\u{3}peer_challenge\0\u{3}peer_challenge_response\0\u{3}display_list\0\u{3}switch_display\0\u{3}cursor_position\0\u{1}ping\0\u{1}pong\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1939,6 +1998,32 @@ extension Peariscope_ControlMessage: SwiftProtobuf.Message, SwiftProtobuf._Messa
           self.msg = .cursorPosition(v)
         }
       }()
+      case 11: try {
+        var v: Peariscope_Ping?
+        var hadOneofValue = false
+        if let current = self.msg {
+          hadOneofValue = true
+          if case .ping(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.msg = .ping(v)
+        }
+      }()
+      case 12: try {
+        var v: Peariscope_Pong?
+        var hadOneofValue = false
+        if let current = self.msg {
+          hadOneofValue = true
+          if case .pong(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.msg = .pong(v)
+        }
+      }()
       default: break
       }
     }
@@ -1990,6 +2075,14 @@ extension Peariscope_ControlMessage: SwiftProtobuf.Message, SwiftProtobuf._Messa
       guard case .cursorPosition(let v)? = self.msg else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
     }()
+    case .ping?: try {
+      guard case .ping(let v)? = self.msg else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
+    }()
+    case .pong?: try {
+      guard case .pong(let v)? = self.msg else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -1997,6 +2090,66 @@ extension Peariscope_ControlMessage: SwiftProtobuf.Message, SwiftProtobuf._Messa
 
   public static func ==(lhs: Peariscope_ControlMessage, rhs: Peariscope_ControlMessage) -> Bool {
     if lhs.msg != rhs.msg {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Peariscope_Ping: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".Ping"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}timestamp_ms\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.timestampMs) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.timestampMs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.timestampMs, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Peariscope_Ping, rhs: Peariscope_Ping) -> Bool {
+    if lhs.timestampMs != rhs.timestampMs {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Peariscope_Pong: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".Pong"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}timestamp_ms\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.timestampMs) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.timestampMs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.timestampMs, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Peariscope_Pong, rhs: Peariscope_Pong) -> Bool {
+    if lhs.timestampMs != rhs.timestampMs {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2308,7 +2461,7 @@ extension Peariscope_RequestIdr: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Peariscope_QualityReport: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".QualityReport"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}rtt_ms\0\u{3}packet_loss\0\u{3}bitrate_kbps\0\u{1}fps\0\u{3}screen_width\0\u{3}screen_height\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}rtt_ms\0\u{3}packet_loss\0\u{3}bitrate_kbps\0\u{1}fps\0\u{3}screen_width\0\u{3}screen_height\0\u{3}received_kbps\0\u{3}jitter_ms\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2322,6 +2475,8 @@ extension Peariscope_QualityReport: SwiftProtobuf.Message, SwiftProtobuf._Messag
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self.fps) }()
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self.screenWidth) }()
       case 6: try { try decoder.decodeSingularUInt32Field(value: &self.screenHeight) }()
+      case 7: try { try decoder.decodeSingularUInt32Field(value: &self.receivedKbps) }()
+      case 8: try { try decoder.decodeSingularFloatField(value: &self.jitterMs) }()
       default: break
       }
     }
@@ -2346,6 +2501,12 @@ extension Peariscope_QualityReport: SwiftProtobuf.Message, SwiftProtobuf._Messag
     if self.screenHeight != 0 {
       try visitor.visitSingularUInt32Field(value: self.screenHeight, fieldNumber: 6)
     }
+    if self.receivedKbps != 0 {
+      try visitor.visitSingularUInt32Field(value: self.receivedKbps, fieldNumber: 7)
+    }
+    if self.jitterMs.bitPattern != 0 {
+      try visitor.visitSingularFloatField(value: self.jitterMs, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2356,6 +2517,8 @@ extension Peariscope_QualityReport: SwiftProtobuf.Message, SwiftProtobuf._Messag
     if lhs.fps != rhs.fps {return false}
     if lhs.screenWidth != rhs.screenWidth {return false}
     if lhs.screenHeight != rhs.screenHeight {return false}
+    if lhs.receivedKbps != rhs.receivedKbps {return false}
+    if lhs.jitterMs != rhs.jitterMs {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2363,7 +2526,7 @@ extension Peariscope_QualityReport: SwiftProtobuf.Message, SwiftProtobuf._Messag
 
 extension Peariscope_ClipboardData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ClipboardData"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}text\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}text\0\u{3}image_png\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2372,6 +2535,7 @@ extension Peariscope_ClipboardData: SwiftProtobuf.Message, SwiftProtobuf._Messag
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.text) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.imagePng) }()
       default: break
       }
     }
@@ -2381,11 +2545,15 @@ extension Peariscope_ClipboardData: SwiftProtobuf.Message, SwiftProtobuf._Messag
     if !self.text.isEmpty {
       try visitor.visitSingularStringField(value: self.text, fieldNumber: 1)
     }
+    if !self.imagePng.isEmpty {
+      try visitor.visitSingularBytesField(value: self.imagePng, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Peariscope_ClipboardData, rhs: Peariscope_ClipboardData) -> Bool {
     if lhs.text != rhs.text {return false}
+    if lhs.imagePng != rhs.imagePng {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

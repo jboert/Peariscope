@@ -39,7 +39,8 @@ public func makeKeyEvent(keycode: UInt32, modifiers: InputModifiers, pressed: Bo
     event.timestampMs = UInt32(DispatchTime.now().uptimeNanoseconds / 1_000_000)
     var key = Peariscope_KeyEvent()
     key.keycode = keycode
-    key.modifiers = modifiers.rawValue
+    // Set 0x80000000 marker to indicate this is a virtual keycode (not Unicode)
+    key.modifiers = 0x80000000 | modifiers.rawValue
     key.pressed = pressed
     event.key = key
     return event

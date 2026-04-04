@@ -201,20 +201,54 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             return
         }
 
-        if displayCount <= 20 || displayCount % 60 == 0 {
-            #if os(iOS)
-            let availMB = os_proc_available_memory() / 1_048_576
-            NSLog("[renderer-diag] display #%d: %dx%d mem=%dMB pendingGPU=%d", displayCount, width, height, availMB, pendingCommandBuffers)
-            #else
-            NSLog("[renderer-diag] display #%d: %dx%d pendingGPU=%d", displayCount, width, height, pendingCommandBuffers)
-            #endif
-        }
-
         lock.lock()
         currentTexture = texture
         currentCVTexture = cvTexture  // Must retain — CVMetalTexture owns the MTLTexture
         currentPixelBuffer = pixelBuffer
         lock.unlock()
+    }
+
+    /// Sample the average brightness of a small region at normalized coordinates (0-1).
+    /// Returns 0.0 (black) to 1.0 (white), or nil if no pixel buffer is available.
+    /// Thread-safe — can be called from any thread.
+    public func sampleBrightness(atNormalized x: Float, y: Float) -> Float? {
+        lock.lock()
+        let pixelBuffer = currentPixelBuffer
+        lock.unlock()
+
+        guard let pixelBuffer else { return nil }
+
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        guard width > 0 && height > 0 else { return nil }
+
+        let centerX = min(max(Int(x * Float(width)), 0), width - 1)
+        let centerY = min(max(Int(y * Float(height)), 0), height - 1)
+
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+
+        // Sample 5x5 region centered on cursor for stability
+        var totalBrightness: Float = 0
+        var sampleCount: Float = 0
+        for dy in -2...2 {
+            for dx in -2...2 {
+                let px = min(max(centerX + dx, 0), width - 1)
+                let py = min(max(centerY + dy, 0), height - 1)
+                let offset = py * bytesPerRow + px * 4
+                let ptr = baseAddress.advanced(by: offset).assumingMemoryBound(to: UInt8.self)
+                // BGRA format
+                let b = Float(ptr[0]) / 255.0
+                let g = Float(ptr[1]) / 255.0
+                let r = Float(ptr[2]) / 255.0
+                totalBrightness += 0.299 * r + 0.587 * g + 0.114 * b
+                sampleCount += 1
+            }
+        }
+        return totalBrightness / sampleCount
     }
 
     /// Stop the renderer. Prevents new frames from being displayed or rendered.

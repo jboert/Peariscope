@@ -10,6 +10,12 @@ private enum NativeToWorklet: UInt8 {
     case streamData = 0x05
     case statusRequest = 0x06
     case lookupPeer = 0x07
+    case cachedDhtNodes = 0x08
+    case suspend = 0x09
+    case resume = 0x0A
+    case approvePeer = 0x0B
+    case connectLocalPeer = 0x0C
+    case reannounce = 0x0D
 }
 
 /// Message types received from the JS worklet.
@@ -25,12 +31,15 @@ private enum WorkletToNative: UInt8 {
     case error = 0x89
     case log = 0x8A
     case lookupResult = 0x8B
+    case dhtNodes = 0x8C
+    case otaUpdateAvailable = 0x8D
 }
 
 /// Events emitted by BareWorkletBridge.
 public struct BareHostingStartedEvent {
     public let publicKeyHex: String
     public let connectionCode: String
+    public let dhtPort: UInt16
 }
 
 public struct BareConnectionEstablishedEvent {
@@ -63,6 +72,8 @@ public struct BareStreamDataEvent {
 public struct BareStatusEvent {
     public let isHosting: Bool
     public let isConnected: Bool
+    public let connectionCode: String?
+    public let publicKeyHex: String?
     public let peers: [[String: Any]]
 }
 
@@ -76,7 +87,7 @@ public final class BareWorkletBridge: @unchecked Sendable {
     private var recvBuf = Data()
     private var recvBufOffset = 0
     private var drainCount = 0
-    private var ipcReadCount = 0
+    public private(set) var ipcReadCount = 0
     private var streamDataRecvCount = 0
     private var chunkBuffers: [String: ChunkBuffer] = [:]
     private var chunkAssembledCount = 0
@@ -87,8 +98,6 @@ public final class BareWorkletBridge: @unchecked Sendable {
     /// Count of ch0 frames that had isChunked=true (for diagnosing unexpected chunking)
     private var ch0ChunkedCount = 0
     /// Bytes received on ch0 per second (for diagnosing throughput)
-    private var ch0BytesThisInterval = 0
-    private var ch0BytesLastLog: CFAbsoluteTime = 0
 
     /// Per-channel stream data counters for diagnostics.
     /// Helps identify StreamMux framing corruption (phantom frames on ch1/ch2).
@@ -98,10 +107,13 @@ public final class BareWorkletBridge: @unchecked Sendable {
     private var chOtherRecvCount = 0
 
     /// Channel 0 time gate — defense-in-depth against JS-side rate limiting failures.
+    /// Defense-in-depth rate limiter for channel 0 (video). The primary rate
+    /// limiter is now centralized in StreamMux (JS worklet), but this Swift-side
+    /// gate remains as a safety net in case the JS gate is bypassed or disabled.
     /// Skips Data allocation + onStreamData callback for gated ch0 frames.
     private var lastCh0AcceptTime: CFAbsoluteTime = 0
     private var ch0DropCount = 0
-    private var lastCh0FrameAccepted = false  // tracks whether last chunk-0 passed gate
+    private var lastCh0FrameAccepted = true  // true initially so first chunked frame's non-zero chunks pass
     private static let ch0MinInterval: CFTimeInterval = 1.0 / 61.0
 
     /// Lock protecting recvBuf, recvBufOffset, chunkBuffers, and all state
@@ -110,10 +122,13 @@ public final class BareWorkletBridge: @unchecked Sendable {
     /// concurrent access corrupts recvBuf and breaks chunk assembly.
     private let recvLock = NSLock()
 
+    /// Video data collected during drainFrames to be delivered AFTER recvLock is released.
+    /// Calling onCh0VideoData inside recvLock causes deadlock/crash — the callback
+    /// (CrashLog.write, decoder dispatch) blocks or crashes, killing the IPC thread
+    /// with recvLock held, permanently blocking all future IPC reads.
+    private var pendingVideoData: [Data] = []
+
     // Diagnostics: track IPC data volume per second
-    private var ipcBytesThisInterval: Int = 0
-    private var ipcFramesThisInterval: Int = 0
-    private var lastIpcDiagTime: CFAbsoluteTime = 0
 
     /// Write buffer for handling partial IPC writes.
     /// BareIPC.write() can return fewer bytes than requested when the pipe buffer is full.
@@ -166,10 +181,16 @@ public final class BareWorkletBridge: @unchecked Sendable {
     public var onPeerConnected: ((BarePeerConnectedEvent) -> Void)?
     public var onPeerDisconnected: ((BarePeerDisconnectedEvent) -> Void)?
     public var onStreamData: ((BareStreamDataEvent) -> Void)?
+    /// Direct ch0 video data callback — bypasses NetworkManager's @MainActor isolation.
+    /// Called from BareKit IPC thread with raw video data. Set this from non-@MainActor
+    /// context (e.g., with captured decoder references) to avoid Swift 6 actor hopping.
+    public var onCh0VideoData: ((Data) -> Void)?
     public var onStatusResponse: ((BareStatusEvent) -> Void)?
     public var onError: ((String) -> Void)?
     public var onLog: ((String) -> Void)?
     public var onLookupResult: ((String, Bool) -> Void)?  // (code, online)
+    public var onDhtNodes: (([[String: Any]]) -> Void)?
+    public var onOtaUpdate: ((String, Data) -> Void)?  // (version, bundleData)
 
     public init() {}
 
@@ -218,15 +239,9 @@ public final class BareWorkletBridge: @unchecked Sendable {
             // BareKit fires readable callbacks from a thread pool. Without this lock,
             // concurrent access to recvBuf/chunkBuffers corrupts data and breaks
             // chunk assembly — only 1 frame ever completes despite 165K+ IPC messages.
+            // Process IPC reads under lock, collect video data to deliver after unlock.
             self.recvLock.lock()
-            defer { self.recvLock.unlock() }
 
-            // Limit reads per callback to prevent:
-            // 1. Autoreleasepool accumulation (Foundation objects from JSON parsing)
-            // 2. IPC pipe never backing up (JS never sees backpressure)
-            // By reading only a small batch, the IPC pipe fills up, JS ipcPipe.write()
-            // returns false, JS buffers data, and when JS buffer exceeds threshold,
-            // video frames are dropped and Hyperswarm stream is paused.
             #if os(iOS)
             let maxReadsPerCallback = 50
             #else
@@ -237,41 +252,10 @@ public final class BareWorkletBridge: @unchecked Sendable {
                 autoreleasepool {
                     readsThisBatch += 1
                     self.ipcReadCount += 1
-                    self.ipcBytesThisInterval += data.count
-                    self.ipcFramesThisInterval += 1
-
-                    let now = CFAbsoluteTimeGetCurrent()
-                    if now - self.lastIpcDiagTime >= 1.0 {
-                        #if os(iOS)
-                        let availMB = os_proc_available_memory() / 1_048_576
-                        NSLog("[ipc-diag] throughput: %d bytes, %d frames in %.1fs, recvBuf=%d, pendingWrite=%d, mem=%dMB",
-                              self.ipcBytesThisInterval, self.ipcFramesThisInterval,
-                              now - self.lastIpcDiagTime, self.recvBuf.count - self.recvBufOffset,
-                              self.pendingWrite.count, availMB)
-                        #else
-                        NSLog("[ipc-diag] throughput: %d bytes, %d frames in %.1fs, recvBuf=%d, pendingWrite=%d",
-                              self.ipcBytesThisInterval, self.ipcFramesThisInterval,
-                              now - self.lastIpcDiagTime, self.recvBuf.count - self.recvBufOffset,
-                              self.pendingWrite.count)
-                        #endif
-                        self.ipcBytesThisInterval = 0
-                        self.ipcFramesThisInterval = 0
-                        self.lastIpcDiagTime = now
-                    }
-
-                    if self.ipcReadCount <= 10 || self.ipcReadCount % 500 == 0 {
-                        #if os(iOS)
-                        let availMB = os_proc_available_memory() / 1_048_576
-                        NSLog("[bare-ipc] read %d bytes, recvBuf=%d, readCount=%d, mem=%dMB", data.count, self.recvBuf.count, self.ipcReadCount, availMB)
-                        #else
-                        NSLog("[bare-ipc] read %d bytes, recvBuf=%d, readCount=%d", data.count, self.recvBuf.count, self.ipcReadCount)
-                        #endif
-                    }
                     #if os(iOS)
                     if self.ipcReadCount % 100 == 0 {
                         let availMB = os_proc_available_memory() / 1_048_576
                         if availMB > 0 && availMB < 200 {
-                            NSLog("[bare-ipc] LOW MEMORY %dMB — dropping IPC data", availMB)
                             self.recvBuf.removeAll()
                             self.recvBufOffset = 0
                             return
@@ -282,11 +266,26 @@ public final class BareWorkletBridge: @unchecked Sendable {
                     if bufSize > 2_000_000 {
                         self.recvBuf.removeAll()
                         self.recvBufOffset = 0
-                        NSLog("[bare-ipc] recvBuf overflow (%d bytes), dropped", bufSize + data.count)
                         return
                     }
                     self.recvBuf.append(data)
                     self.drainFrames()
+                }
+            }
+
+            // Grab pending video data and release lock BEFORE firing callbacks.
+            // Calling onCh0VideoData inside recvLock deadlocks — the callback does
+            // CrashLog.write (synchronous fsync) and decoder dispatch that can block,
+            // killing the thread with recvLock held and permanently blocking IPC.
+            let videoToDeliver = self.pendingVideoData
+            self.pendingVideoData.removeAll(keepingCapacity: true)
+            let videoCb = self.onCh0VideoData
+            self.recvLock.unlock()
+
+            // Fire video callbacks outside the lock
+            if let cb = videoCb {
+                for data in videoToDeliver {
+                    cb(data)
                 }
             }
         }
@@ -319,8 +318,18 @@ public final class BareWorkletBridge: @unchecked Sendable {
         sendCommand(.connectToPeer, json: ["code": code])
     }
 
+    /// Connect to a LAN-discovered peer by injecting its local address into the DHT first.
+    public func connectLocalPeer(code: String, host: String, port: UInt16) {
+        sendCommand(.connectLocalPeer, json: ["code": code, "host": host, "port": port])
+    }
+
     public func disconnect(peerKeyHex: String) {
         sendCommand(.disconnect, json: ["peerKeyHex": peerKeyHex])
+    }
+
+    /// Disconnect all peers and leave all swarm topics.
+    public func disconnectAllPeers() {
+        sendCommand(.disconnect, json: ["peerKeyHex": "*"])
     }
 
     /// Maximum payload size per IPC chunk. Must be well under the pipe buffer (64KB on macOS).
@@ -371,6 +380,38 @@ public final class BareWorkletBridge: @unchecked Sendable {
         sendCommand(.lookupPeer, json: ["code": code])
     }
 
+    public func sendCachedDhtNodes(_ nodes: [[String: Any]], keypair: (publicKey: String, secretKey: String)? = nil) {
+        var payload: [String: Any] = ["nodes": nodes]
+        if let kp = keypair {
+            payload["keypair"] = ["publicKey": kp.publicKey, "secretKey": kp.secretKey]
+        }
+        sendCommand(.cachedDhtNodes, json: payload)
+    }
+
+    public func sendSuspend() {
+        sendCommand(.suspend)
+    }
+
+    public func sendResume() {
+        sendCommand(.resume)
+    }
+
+    public func sendReannounce() {
+        sendCommand(.reannounce)
+    }
+
+    public func sendApprovePeer(peerKeyHex: String) {
+        sendCommand(.approvePeer, json: ["peerKeyHex": peerKeyHex])
+    }
+
+    /// Clear OTA worklet bundle from Documents (for debugging or rollback).
+    public func clearOtaBundle() {
+        let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        try? FileManager.default.removeItem(at: docsDir.appendingPathComponent("worklet-ota.bundle"))
+        try? FileManager.default.removeItem(at: docsDir.appendingPathComponent("worklet-ota.version"))
+        NSLog("[bare] Cleared OTA worklet bundle")
+    }
+
     /// Whether the worklet is alive and has an IPC pipe.
     public var isAlive: Bool { worklet != nil && ipc != nil }
 
@@ -380,13 +421,15 @@ public final class BareWorkletBridge: @unchecked Sendable {
     }
 
     public func terminate() {
-        writeQueue.sync {
-            pendingWrite.removeAll()
-        }
-        worklet?.terminate()
-        ipc?.close()
+        let w = worklet
+        let i = ipc
         worklet = nil
         ipc = nil
+        writeQueue.async { [self] in
+            pendingWrite.removeAll()
+        }
+        w?.terminate()
+        i?.close()
     }
 
     public func suspend() {
@@ -421,7 +464,7 @@ public final class BareWorkletBridge: @unchecked Sendable {
         var frame = Data(bytes: &length, count: 4)
         frame.append(payload)
 
-        writeQueue.sync {
+        writeQueue.async { [self] in
             // Backpressure: drop video frames when the write buffer is too full
             if type == .streamData && pendingWrite.count > Self.maxPendingWriteBytes {
                 droppedFrameCount += 1
@@ -473,10 +516,6 @@ public final class BareWorkletBridge: @unchecked Sendable {
                 return
             }
             guard recvBuf.count - recvBufOffset >= 4 + length else {
-                drainCount += 1
-                if drainCount <= 10 || drainCount % 500 == 0 {
-                    NSLog("[bare-ipc] drain: waiting need=%d have=%d drainCount=%d", 4 + length, recvBuf.count - recvBufOffset, drainCount)
-                }
                 break
             }
             let frameStart = recvBufOffset + 4
@@ -488,15 +527,9 @@ public final class BareWorkletBridge: @unchecked Sendable {
             // these copies consumed ~1.4GB/sec of transient Data allocations.
             let frameType = recvBuf[frameStart]
             if frameType == WorkletToNative.streamData.rawValue {
-                if drainCount <= 10 || drainCount % 500 == 0 {
-                    NSLog("[bare-ipc] drain: frame len=%d type=0x%02x drainCount=%d", length, UInt32(frameType), drainCount)
-                }
                 handleStreamDataInPlace(at: frameStart, length: length)
             } else {
                 let frame = recvBuf.subdata(in: frameStart..<(frameStart + length))
-                if drainCount <= 10 || drainCount % 500 == 0 {
-                    NSLog("[bare-ipc] drain: frame len=%d type=0x%02x drainCount=%d", length, frame.count >= 1 ? UInt32(frame[0]) : 0, drainCount)
-                }
                 handleFrame(frame)
             }
             recvBufOffset += 4 + length
@@ -510,27 +543,56 @@ public final class BareWorkletBridge: @unchecked Sendable {
 
     /// Handle streamData messages in-place from recvBuf, avoiding two ~16KB subdata copies
     /// (frame + rest) per message. At 43K messages/sec this saves ~1.4GB/sec of allocations.
-    /// Only the small JSON header (~80 bytes) and final binary payload are copied when needed.
+    /// Supports both binary format (jsonLen==0) and legacy JSON format.
     private func handleStreamDataInPlace(at offset: Int, length: Int) {
         streamDataRecvCount += 1
-        // Need at least: type(1) + jsonLen(2) + 1 byte JSON
-        guard length >= 4 else { return }
+        // Need at least: type(1) + jsonLen(2)
+        guard length >= 3 else { return }
 
         let restOffset = offset + 1
         let restCount = length - 1
         let jsonLen = Int(recvBuf.withUnsafeBytes { ptr -> UInt16 in
             ptr.loadUnaligned(fromByteOffset: restOffset, as: UInt16.self).bigEndian
         })
-        guard restCount >= 2 + jsonLen else { return }
 
-        // Small JSON copy (~80 bytes) — unavoidable for JSONSerialization
-        let jsonData = recvBuf.subdata(in: (restOffset + 2)..<(restOffset + 2 + jsonLen))
-        guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else { return }
+        if jsonLen == 0 {
+            // Binary format: [2B 0x0000] [4B streamId BE] [1B channel] [2B totalChunks BE] [2B chunkIndex BE] [payload]
+            // restCount must be >= 2 + 4 + 1 + 2 + 2 = 11
+            guard restCount >= 11 else { return }
+            let headerBase = restOffset + 2
+            let streamId = recvBuf.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: headerBase, as: UInt32.self).bigEndian }
+            let channel = recvBuf[headerBase + 4]
+            let totalChunks = Int(recvBuf.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: headerBase + 5, as: UInt16.self).bigEndian })
+            let chunkIndex = Int(recvBuf.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: headerBase + 7, as: UInt16.self).bigEndian })
+            let isChunked = totalChunks > 1
+            let binaryStart = headerBase + 9
+            let binaryEnd = offset + length
+            processStreamData(streamId: streamId, channel: channel, isChunked: isChunked,
+                              totalChunks: totalChunks, chunkIndex: chunkIndex,
+                              binaryStart: binaryStart, binaryEnd: binaryEnd)
+        } else {
+            // Legacy JSON format: [2B jsonLen] [JSON] [payload]
+            guard restCount >= 2 + jsonLen else { return }
+            let jsonData = recvBuf.subdata(in: (restOffset + 2)..<(restOffset + 2 + jsonLen))
+            guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else { return }
+            let streamId = UInt32(json["streamId"] as? Int ?? 0)
+            let channel = UInt8(json["channel"] as? Int ?? 0)
+            let totalChunks = json["_totalChunks"] as? Int ?? 0
+            let isChunked = totalChunks > 1
+            let chunkIndex = json["_chunkIndex"] as? Int ?? 0
+            let binaryStart = restOffset + 2 + jsonLen
+            let binaryEnd = offset + length
+            processStreamData(streamId: streamId, channel: channel, isChunked: isChunked,
+                              totalChunks: totalChunks, chunkIndex: chunkIndex,
+                              binaryStart: binaryStart, binaryEnd: binaryEnd)
+        }
+    }
 
-        let streamId = UInt32(json["streamId"] as? Int ?? 0)
-        let channel = UInt8(json["channel"] as? Int ?? 0)
-        let isChunked = (json["_totalChunks"] as? Int ?? 0) > 1
-
+    /// Common stream data processing for both binary and JSON formats.
+    /// Handles per-channel counting, ch0 time gating, chunk assembly, and event delivery.
+    private func processStreamData(streamId: UInt32, channel: UInt8, isChunked: Bool,
+                                   totalChunks: Int, chunkIndex: Int,
+                                   binaryStart: Int, binaryEnd: Int) {
         // Per-channel counting — helps diagnose StreamMux framing corruption
         switch channel {
         case 0: ch0RecvCount += 1
@@ -542,24 +604,34 @@ public final class BareWorkletBridge: @unchecked Sendable {
         // Track ch0 chunked frames for diagnostics
         if channel == 0 && isChunked {
             ch0ChunkedCount += 1
-            if ch0ChunkedCount <= 5 {
-                NSLog("[bare-ipc] ch0 CHUNKED frame: totalChunks=%d chunkIndex=%d isChunked=%d count=%d",
-                      json["_totalChunks"] as? Int ?? -1, json["_chunkIndex"] as? Int ?? -1,
-                      isChunked ? 1 : 0, ch0ChunkedCount)
+            if ch0ChunkedCount <= 30 {
+                NSLog("[bare-ipc] ch0 CHUNK: idx=%d/%d sid=%d binLen=%d count=%d ch0gated=%d accepted=%d",
+                      chunkIndex, totalChunks, streamId, binaryEnd - binaryStart,
+                      ch0ChunkedCount, ch0DropCount, lastCh0FrameAccepted ? 1 : 0)
             }
         }
 
         // Channel 0 time gate — gates chunk-0/unchunked by time, and non-zero chunks
-        // based on whether their chunk-0 was accepted. Previously non-zero chunks passed
-        // freely, causing 143K+ orphaned chunk processings (JSON parse + dictionary
-        // lookup each) per second when chunk-0s were gated.
+        // based on whether their chunk-0 was accepted.
+        // KEYFRAMES ARE NEVER DROPPED — missing keyframes cause blocky corruption
+        // and frozen regions until the next keyframe arrives (~1 second later).
         if channel == 0 {
-            let isChunk0 = isChunked && (json["_chunkIndex"] as? Int ?? -1) == 0
+            let isChunk0 = isChunked && chunkIndex == 0
             if !isChunked || isChunk0 {
+                // Detect keyframes by inspecting first NAL unit type after Annex B start code.
+                // H.265: VPS=32, SPS=33, PPS=34, IDR_W_RADL=19, IDR_N_LP=20
+                // H.264: SPS=7, PPS=8, IDR=5
+                let isKeyframe = Self.isKeyframeData(recvBuf, offset: binaryStart, end: binaryEnd)
+
                 let now = CFAbsoluteTimeGetCurrent()
-                if now - lastCh0AcceptTime < Self.ch0MinInterval {
+                if !isKeyframe && now - lastCh0AcceptTime < Self.ch0MinInterval {
                     ch0DropCount += 1
                     lastCh0FrameAccepted = false
+                    if ch0DropCount <= 5 {
+                        let msg = "ch0 GATE DROP: isChunk0=\(isChunk0) elapsed=\(String(format: "%.4f", now - lastCh0AcceptTime))s"
+                        NSLog("[bare-ipc] %@", msg)
+                        onLog?(msg)
+                    }
                     return
                 }
                 lastCh0AcceptTime = now
@@ -571,25 +643,7 @@ public final class BareWorkletBridge: @unchecked Sendable {
             }
         }
 
-        // Track ch0 binary data volume
-        if channel == 0 {
-            let binLen = (offset + length) - (restOffset + 2 + jsonLen)
-            ch0BytesThisInterval += max(0, binLen)
-            let now = CFAbsoluteTimeGetCurrent()
-            if now - ch0BytesLastLog >= 1.0 {
-                NSLog("[bare-ipc] ch0 throughput: %d bytes/sec, chunked=%d unchunked=%d gated=%d orphaned=%d",
-                      ch0BytesThisInterval, ch0ChunkedCount, unchunkedCount, ch0DropCount, orphanedChunkCount)
-                ch0BytesThisInterval = 0
-                ch0BytesLastLog = now
-            }
-        }
-
-        let binaryStart = restOffset + 2 + jsonLen
-        let binaryEnd = offset + length
-
-        if isChunked,
-           let totalChunks = json["_totalChunks"] as? Int,
-           let chunkIndex = json["_chunkIndex"] as? Int {
+        if isChunked {
             let key = "\(streamId):\(channel)"
             if chunkBuffers.count > Self.maxPendingChunkBuffers / 2 {
                 chunkBuffers = chunkBuffers.filter { !$0.value.isExpired }
@@ -607,15 +661,16 @@ public final class BareWorkletBridge: @unchecked Sendable {
             }
             // Only allocate binaryData after confirming the chunk has a live buffer
             let binaryData = recvBuf.subdata(in: binaryStart..<binaryEnd)
-            if streamDataRecvCount <= 5 || streamDataRecvCount % 300 == 0 {
-                NSLog("[bare-ipc] streamData ch=%d sid=%d binLen=%d count=%d ch0drop=%d", channel, streamId, binaryData.count, streamDataRecvCount, ch0DropCount)
-            }
             buf.add(index: chunkIndex, data: binaryData)
             chunkBuffers[key] = buf
             if buf.isComplete {
                 chunkAssembledCount += 1
                 let assembled = buf.assemble()
                 chunkBuffers.removeValue(forKey: key)
+                // Defer ch0 video callback until after recvLock is released.
+                if channel == 0 && onCh0VideoData != nil {
+                    pendingVideoData.append(assembled)
+                }
                 let event = BareStreamDataEvent(
                     streamId: streamId,
                     channel: channel,
@@ -625,15 +680,93 @@ public final class BareWorkletBridge: @unchecked Sendable {
             }
         } else {
             let binaryData = recvBuf.subdata(in: binaryStart..<binaryEnd)
-            if streamDataRecvCount <= 5 || streamDataRecvCount % 300 == 0 {
-                NSLog("[bare-ipc] streamData ch=%d sid=%d binLen=%d count=%d ch0drop=%d", channel, streamId, binaryData.count, streamDataRecvCount, ch0DropCount)
-            }
             unchunkedCount += 1
+            // Defer ch0 video callback until after recvLock is released
+            if channel == 0 && onCh0VideoData != nil {
+                pendingVideoData.append(binaryData)
+            }
             let event = BareStreamDataEvent(
                 streamId: streamId,
                 channel: channel,
                 data: binaryData
             )
+            onStreamData?(event)
+        }
+    }
+
+    /// Deliver stream data from the handleFrame fallback path (Data already extracted).
+    /// Shares time gating and chunk assembly logic with processStreamData but works
+    /// with pre-extracted Data instead of recvBuf offsets.
+    private func deliverStreamData(streamId: UInt32, channel: UInt8, isChunked: Bool,
+                                   totalChunks: Int, chunkIndex: Int, binaryData: Data) {
+        // Per-channel counting
+        switch channel {
+        case 0: ch0RecvCount += 1
+        case 1: ch1RecvCount += 1
+        case 2: ch2RecvCount += 1
+        default: chOtherRecvCount += 1
+        }
+
+        if channel == 0 && isChunked {
+            ch0ChunkedCount += 1
+        }
+
+        // Channel 0 time gate — keyframes are never dropped
+        if channel == 0 {
+            let isChunk0 = isChunked && chunkIndex == 0
+            if !isChunked || isChunk0 {
+                let isKeyframe = binaryData.withUnsafeBytes { ptr -> Bool in
+                    guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
+                    return Self.isKeyframeBytes(base, count: binaryData.count)
+                }
+                let now = CFAbsoluteTimeGetCurrent()
+                if !isKeyframe && now - lastCh0AcceptTime < Self.ch0MinInterval {
+                    ch0DropCount += 1
+                    lastCh0FrameAccepted = false
+                    return
+                }
+                lastCh0AcceptTime = now
+                lastCh0FrameAccepted = true
+            } else if isChunked && !lastCh0FrameAccepted {
+                ch0DropCount += 1
+                return
+            }
+        }
+
+        if isChunked {
+            let key = "\(streamId):\(channel)"
+            if chunkBuffers.count > Self.maxPendingChunkBuffers / 2 {
+                chunkBuffers = chunkBuffers.filter { !$0.value.isExpired }
+            }
+            if chunkIndex == 0 && totalChunks <= Self.maxChunksPerBuffer
+                && chunkBuffers.count < Self.maxPendingChunkBuffers {
+                if let existing = chunkBuffers[key], !existing.isComplete {
+                    chunkReplacedCount += 1
+                }
+                chunkBuffers[key] = ChunkBuffer(total: totalChunks)
+            }
+            guard var buf = chunkBuffers[key], chunkIndex < buf.total else {
+                orphanedChunkCount += 1
+                return
+            }
+            buf.add(index: chunkIndex, data: binaryData)
+            chunkBuffers[key] = buf
+            if buf.isComplete {
+                chunkAssembledCount += 1
+                let assembled = buf.assemble()
+                chunkBuffers.removeValue(forKey: key)
+                if channel == 0 && onCh0VideoData != nil {
+                    pendingVideoData.append(assembled)
+                }
+                let event = BareStreamDataEvent(streamId: streamId, channel: channel, data: assembled)
+                onStreamData?(event)
+            }
+        } else {
+            unchunkedCount += 1
+            if channel == 0 && onCh0VideoData != nil {
+                pendingVideoData.append(binaryData)
+            }
+            let event = BareStreamDataEvent(streamId: streamId, channel: channel, data: binaryData)
             onStreamData?(event)
         }
     }
@@ -653,7 +786,8 @@ public final class BareWorkletBridge: @unchecked Sendable {
             if let json = parseJSON(rest) {
                 let event = BareHostingStartedEvent(
                     publicKeyHex: json["publicKeyHex"] as? String ?? "",
-                    connectionCode: json["connectionCode"] as? String ?? ""
+                    connectionCode: json["connectionCode"] as? String ?? "",
+                    dhtPort: UInt16(json["dhtPort"] as? Int ?? 0)
                 )
                 onHostingStarted?(event)
             }
@@ -699,97 +833,37 @@ public final class BareWorkletBridge: @unchecked Sendable {
             }
 
         case .streamData:
+            // Fallback path for streamData not caught by the in-place hot path.
+            // Supports both binary format (jsonLen==0) and legacy JSON format.
             streamDataRecvCount += 1
-            if rest.count >= 3 {
-                let jsonLen = Int(rest.withUnsafeBytes { ptr -> UInt16 in
-                    ptr.load(as: UInt16.self).bigEndian
-                })
+            guard rest.count >= 2 else { break }
+            let jsonLen = Int(rest.withUnsafeBytes { ptr -> UInt16 in
+                ptr.load(as: UInt16.self).bigEndian
+            })
+            if jsonLen == 0 {
+                // Binary format: [2B 0x0000] [4B streamId] [1B channel] [2B totalChunks] [2B chunkIndex] [payload]
+                guard rest.count >= 11 else { break }
+                let streamId = rest.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 2, as: UInt32.self).bigEndian }
+                let channel = rest[6]
+                let totalChunks = Int(rest.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 7, as: UInt16.self).bigEndian })
+                let chunkIndex = Int(rest.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 9, as: UInt16.self).bigEndian })
+                let isChunked = totalChunks > 1
+                let binaryData = rest.subdata(in: 11..<rest.count)
+                deliverStreamData(streamId: streamId, channel: channel, isChunked: isChunked,
+                                  totalChunks: totalChunks, chunkIndex: chunkIndex, binaryData: binaryData)
+            } else {
+                // Legacy JSON format
                 guard rest.count >= 2 + jsonLen else { break }
                 let jsonData = rest.subdata(in: 2..<(2 + jsonLen))
-
-                if let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-                    let streamId = UInt32(json["streamId"] as? Int ?? 0)
-                    let channel = UInt8(json["channel"] as? Int ?? 0)
-
-                    let isChunked = (json["_totalChunks"] as? Int ?? 0) > 1
-
-                    // Channel 0 time gate — skip Data allocation entirely for gated frames.
-                    // This is defense-in-depth: even if the JS-side rate limiter fails and
-                    // floods IPC with 30K+ fps, Swift only processes ~60fps of video data.
-                    // We check BEFORE allocating binaryData to avoid the copy.
-                    // Gate applies to BOTH unchunked AND chunk 0 (which starts a new
-                    // ChunkBuffer). Non-zero chunks are gated by whether their buffer exists.
-                    if channel == 0 {
-                        let isChunk0 = isChunked && (json["_chunkIndex"] as? Int ?? -1) == 0
-                        if !isChunked || isChunk0 {
-                            let now = CFAbsoluteTimeGetCurrent()
-                            if now - lastCh0AcceptTime < Self.ch0MinInterval {
-                                ch0DropCount += 1
-                                break
-                            }
-                            lastCh0AcceptTime = now
-                        }
-                    }
-
-                    // Check for chunked data — defer binaryData allocation until after
-                    // guard check to avoid 16KB Data copies for orphaned chunks (37K/sec
-                    // of wasted allocations when assembly is broken).
-                    if isChunked,
-                       let totalChunks = json["_totalChunks"] as? Int,
-                       let chunkIndex = json["_chunkIndex"] as? Int {
-                        let key = "\(streamId):\(channel)"
-                        // Evict expired chunk buffers (>2s old = never completing)
-                        if chunkBuffers.count > Self.maxPendingChunkBuffers / 2 {
-                            chunkBuffers = chunkBuffers.filter { !$0.value.isExpired }
-                        }
-                        if chunkIndex == 0 && totalChunks <= Self.maxChunksPerBuffer
-                            && chunkBuffers.count < Self.maxPendingChunkBuffers {
-                            // Track if we're replacing an incomplete buffer
-                            if let existing = chunkBuffers[key], !existing.isComplete {
-                                chunkReplacedCount += 1
-                            }
-                            chunkBuffers[key] = ChunkBuffer(total: totalChunks)
-                        }
-                        // Skip orphaned chunks: if no buffer exists for this key
-                        // (chunk 0 was dropped or buffer was evicted), skip entirely.
-                        // No binaryData allocation = no wasted memory for dead chunks.
-                        guard var buf = chunkBuffers[key], chunkIndex < buf.total else {
-                            break
-                        }
-                        // Only allocate binaryData NOW — after confirming the chunk has
-                        // a live buffer to go into. Previously this was allocated before
-                        // the guard, wasting 16KB × 37K/sec = 592MB/sec for orphaned chunks.
-                        let binaryData = rest.subdata(in: (2 + jsonLen)..<rest.count)
-                        if streamDataRecvCount <= 5 || streamDataRecvCount % 300 == 0 {
-                            NSLog("[bare-ipc] streamData ch=%d sid=%d binLen=%d count=%d ch0drop=%d", channel, streamId, binaryData.count, streamDataRecvCount, ch0DropCount)
-                        }
-                        buf.add(index: chunkIndex, data: binaryData)
-                        chunkBuffers[key] = buf
-                        if buf.isComplete {
-                            chunkAssembledCount += 1
-                            let assembled = buf.assemble()
-                            chunkBuffers.removeValue(forKey: key)
-                            let event = BareStreamDataEvent(
-                                streamId: streamId,
-                                channel: channel,
-                                data: assembled
-                            )
-                            onStreamData?(event)
-                        }
-                    } else {
-                        let binaryData = rest.subdata(in: (2 + jsonLen)..<rest.count)
-                        if streamDataRecvCount <= 5 || streamDataRecvCount % 300 == 0 {
-                            NSLog("[bare-ipc] streamData ch=%d sid=%d binLen=%d count=%d ch0drop=%d", channel, streamId, binaryData.count, streamDataRecvCount, ch0DropCount)
-                        }
-                        unchunkedCount += 1
-                        let event = BareStreamDataEvent(
-                            streamId: streamId,
-                            channel: channel,
-                            data: binaryData
-                        )
-                        onStreamData?(event)
-                    }
-                }
+                guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else { break }
+                let streamId = UInt32(json["streamId"] as? Int ?? 0)
+                let channel = UInt8(json["channel"] as? Int ?? 0)
+                let totalChunks = json["_totalChunks"] as? Int ?? 0
+                let isChunked = totalChunks > 1
+                let chunkIndex = json["_chunkIndex"] as? Int ?? 0
+                let binaryData = rest.subdata(in: (2 + jsonLen)..<rest.count)
+                deliverStreamData(streamId: streamId, channel: channel, isChunked: isChunked,
+                                  totalChunks: totalChunks, chunkIndex: chunkIndex, binaryData: binaryData)
             }
 
         case .statusResponse:
@@ -797,6 +871,8 @@ public final class BareWorkletBridge: @unchecked Sendable {
                 let event = BareStatusEvent(
                     isHosting: json["isHosting"] as? Bool ?? false,
                     isConnected: json["isConnected"] as? Bool ?? false,
+                    connectionCode: json["connectionCode"] as? String,
+                    publicKeyHex: json["publicKeyHex"] as? String,
                     peers: json["peers"] as? [[String: Any]] ?? []
                 )
                 onStatusResponse?(event)
@@ -822,10 +898,69 @@ public final class BareWorkletBridge: @unchecked Sendable {
                 let online = json["online"] as? Bool ?? false
                 onLookupResult?(code, online)
             }
+
+        case .dhtNodes:
+            if let json = parseJSON(rest) {
+                if let nodes = json["nodes"] as? [[String: Any]] {
+                    onDhtNodes?(nodes)
+                }
+                // Save keypair from worklet for persistence across launches
+                if let kp = json["keypair"] as? [String: String],
+                   let pubKey = kp["publicKey"], let secKey = kp["secretKey"] {
+                    UserDefaults.standard.set(pubKey, forKey: "peariscope.dhtPublicKey")
+                    UserDefaults.standard.set(secKey, forKey: "peariscope.dhtSecretKey")
+                    NSLog("[bare] Saved DHT keypair for persistence: %@...", String(pubKey.prefix(16)))
+                }
+            }
+
+        case .otaUpdateAvailable:
+            // Frame format: [jsonLen: 2B BE] [JSON bytes] [binary bundle data]
+            guard rest.count >= 2 else { break }
+            let jsonLen = Int(rest[rest.startIndex]) << 8 | Int(rest[rest.startIndex + 1])
+            guard rest.count >= 2 + jsonLen else { break }
+            let jsonData = rest.subdata(in: (rest.startIndex + 2)..<(rest.startIndex + 2 + jsonLen))
+            let binaryPayload = rest.subdata(in: (rest.startIndex + 2 + jsonLen)..<rest.endIndex)
+            if let otaJson = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                let version = otaJson["version"] as? String ?? "unknown"
+                if !binaryPayload.isEmpty {
+                    onOtaUpdate?(version, binaryPayload)
+                }
+            }
         }
     }
 
     private func parseJSON(_ data: Data) -> [String: Any]? {
         try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    /// Detect keyframes in Annex B data by inspecting the first NAL unit type.
+    /// Works with both recvBuf offsets (processStreamData) and raw bytes (deliverStreamData).
+    /// H.265: VPS=32, SPS=33, PPS=34, IDR_W_RADL=19, IDR_N_LP=20
+    /// H.264: SPS=7, PPS=8, IDR=5
+    private static func isKeyframeData(_ data: Data, offset: Int, end: Int) -> Bool {
+        let count = end - offset
+        guard count >= 5 else { return false }
+        return data.withUnsafeBytes { ptr -> Bool in
+            guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
+            return isKeyframeBytes(base + offset, count: count)
+        }
+    }
+
+    private static func isKeyframeBytes(_ bytes: UnsafePointer<UInt8>, count: Int) -> Bool {
+        guard count >= 5 else { return false }
+        var nalByte: UInt8 = 0
+        if bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 0 && bytes[3] == 1 {
+            nalByte = bytes[4]
+        } else if bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 1 && count >= 4 {
+            nalByte = bytes[3]
+        } else {
+            return false
+        }
+        let h265type = (nalByte >> 1) & 0x3F
+        let h264type = nalByte & 0x1F
+        // H.265 VPS=32, SPS=33, PPS=34, IDR_W_RADL=19, IDR_N_LP=20
+        // H.264 SPS=7, PPS=8, IDR=5
+        return (h265type >= 32 && h265type <= 34) || h265type == 19 || h265type == 20 ||
+               h264type == 5 || h264type == 7 || h264type == 8
     }
 }

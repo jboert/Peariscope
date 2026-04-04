@@ -95,6 +95,7 @@ enum StreamChannel {
   STREAM_CHANNEL_VIDEO = 0;
   STREAM_CHANNEL_INPUT = 1;
   STREAM_CHANNEL_CONTROL = 2;
+  STREAM_CHANNEL_AUDIO = 3;
 }
 
 // --- Input Events ---
@@ -146,7 +147,19 @@ message ControlMessage {
     DisplayList display_list = 8;
     SwitchDisplay switch_display = 9;
     CursorPosition cursor_position = 10;
+    Ping ping = 11;
+    Pong pong = 12;
   }
+}
+
+// RTT measurement: host sends Ping with timestamp, viewer echoes back as Pong.
+// Host computes RTT = now - pong.timestamp. No clock sync needed.
+message Ping {
+  uint64 timestamp_ms = 1;  // Host's local time in ms (CFAbsoluteTimeGetCurrent * 1000)
+}
+
+message Pong {
+  uint64 timestamp_ms = 1;  // Echoed from Ping — host uses this to compute RTT
 }
 
 // Sent by host at high frequency for client-side cursor rendering.
@@ -212,10 +225,13 @@ message QualityReport {
   uint32 fps = 4;
   uint32 screen_width = 5;   // Viewer's native screen width in pixels
   uint32 screen_height = 6;  // Viewer's native screen height in pixels
+  uint32 received_kbps = 7;  // Viewer's actual received throughput in kbps
+  float jitter_ms = 8;       // Inter-frame arrival time variance in ms
 }
 
 message ClipboardData {
   string text = 1;
+  bytes image_png = 2;  // PNG-encoded image data (screenshots, copied images)
 }
 
 // --- Status ---
