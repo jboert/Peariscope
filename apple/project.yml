@@ -85,9 +85,11 @@ targets:
           cd "$PEAR_SRC"
           PATH="${PATH}:${PEAR_SRC}/node_modules/.bin"
           if [ ! -f "$PEAR_SRC/worklet.bundle" ] || [ "$PEAR_SRC/worklet.js" -nt "$PEAR_SRC/worklet.bundle" ]; then
-            npx bare-pack --preset darwin --linked --base "$PEAR_SRC" --out "$PEAR_SRC/worklet.bundle" "$PEAR_SRC/worklet.js" 2>&1 || true
+            npx bare-pack --preset darwin --linked --base "$PEAR_SRC" --out "$PEAR_SRC/worklet.bundle" "$PEAR_SRC/worklet.js" 2>&1
+            if [ $? -ne 0 ]; then echo "error: bare-pack failed for macOS worklet" >&2; exit 1; fi
           fi
-          cp "$PEAR_SRC/worklet.bundle" "$PEAR_DEST/" 2>/dev/null || true
+          if [ ! -f "$PEAR_SRC/worklet.bundle" ]; then echo "error: worklet.bundle not found — run npm install in pear/" >&2; exit 1; fi
+          cp "$PEAR_SRC/worklet.bundle" "$PEAR_DEST/"
 
           # Copy macOS native addon frameworks
           if [ -d "$PEAR_SRC/addons-darwin" ]; then
@@ -167,7 +169,9 @@ targets:
           cd "$PEAR_SRC"
           PATH="${PATH}:${PEAR_SRC}/node_modules/.bin"
           if [ ! -f "$PEAR_SRC/worklet-ios.bundle" ] || [ "$PEAR_SRC/worklet.js" -nt "$PEAR_SRC/worklet-ios.bundle" ]; then
-            npx bare-pack --preset ios --linked --base "$PEAR_SRC" --out "$PEAR_SRC/worklet-ios.bundle" "$PEAR_SRC/worklet.js" 2>&1 || true
+            npx bare-pack --preset ios --linked --base "$PEAR_SRC" --out "$PEAR_SRC/worklet-ios.bundle" "$PEAR_SRC/worklet.js" 2>&1
+            if [ $? -ne 0 ]; then echo "error: bare-pack failed for iOS worklet" >&2; exit 1; fi
           fi
-          cp "$PEAR_SRC/worklet-ios.bundle" "$PEAR_DEST/worklet.bundle" 2>/dev/null || true
+          if [ ! -f "$PEAR_SRC/worklet-ios.bundle" ]; then echo "error: worklet-ios.bundle not found — run npm install in pear/" >&2; exit 1; fi
+          cp "$PEAR_SRC/worklet-ios.bundle" "$PEAR_DEST/worklet.bundle"
         basedOnDependencyAnalysis: false

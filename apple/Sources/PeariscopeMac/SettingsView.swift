@@ -6,12 +6,13 @@ import PeariscopeCore
 
 struct SettingsView: View {
     @ObservedObject var networkManager: NetworkManager
+    @ObservedObject private var theme = ThemeManager.shared
     let onBack: () -> Void
 
     @State private var maxViewers: Int = UserDefaults.standard.integer(forKey: "peariscope.maxViewers").clamped(to: 1...20, default: 5)
     @State private var requirePin: Bool = UserDefaults.standard.object(forKey: "peariscope.requirePin") as? Bool ?? true
     @State private var skipPinOnReconnect: Bool = UserDefaults.standard.bool(forKey: "peariscope.skipPinOnReconnect")
-    @State private var pinCode: String = UserDefaults.standard.string(forKey: "peariscope.pinCode") ?? ""
+    @State private var pinCode: String = HostSession.loadPinFromKeychain()
     @State private var newCodeEachSession: Bool = UserDefaults.standard.bool(forKey: "peariscope.newCodeEachSession")
     @State private var adaptiveResolution: Bool = UserDefaults.standard.object(forKey: "peariscope.adaptiveResolution") as? Bool ?? true
     @State private var startSharingOnStartup: Bool = UserDefaults.standard.bool(forKey: "peariscope.startSharingOnStartup")
@@ -22,6 +23,24 @@ struct SettingsView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 2) {
+                // --- Appearance ---
+                sectionHeader("Appearance")
+
+                settingRow(
+                    icon: "paintpalette.fill",
+                    iconColor: ThemeManager.shared.current.accentColor,
+                    title: "Theme",
+                    subtitle: "App color scheme"
+                ) {
+                    Picker("", selection: $theme.current) {
+                        ForEach(AppTheme.allCases) { theme in
+                            Text(theme.displayName).tag(theme)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 160)
+                }
+
                 // --- Security ---
                 sectionHeader("Security")
 

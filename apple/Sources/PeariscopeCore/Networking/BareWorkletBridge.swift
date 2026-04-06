@@ -1,5 +1,6 @@
 import Foundation
 import BareKit
+import Security
 
 /// Message types sent from native to the JS worklet.
 private enum NativeToWorklet: UInt8 {
@@ -33,6 +34,7 @@ private enum WorkletToNative: UInt8 {
     case lookupResult = 0x8B
     case dhtNodes = 0x8C
     case otaUpdateAvailable = 0x8D
+    case connectionStatus = 0x8E
 }
 
 /// Events emitted by BareWorkletBridge.
@@ -191,13 +193,16 @@ public final class BareWorkletBridge: @unchecked Sendable {
     public var onLookupResult: ((String, Bool) -> Void)?  // (code, online)
     public var onDhtNodes: (([[String: Any]]) -> Void)?
     public var onOtaUpdate: ((String, Data) -> Void)?  // (version, bundleData)
+    public var onConnectionStatus: ((String, String) -> Void)?  // (phase, detail)
 
     public init() {}
 
     /// Start the Bare worklet with the packed Pear networking bundle.
     /// - Parameter assetsPath: Path to directory containing worklet.bundle
     public func start(assetsPath: String) throws {
-        let config = BareWorkletConfiguration.default()!
+        guard let config = BareWorkletConfiguration.default() else {
+            throw NSError(domain: "BareWorkletBridge", code: 1, userInfo: [NSLocalizedDescriptionKey: "BareWorkletConfiguration.default() returned nil"])
+        }
 
         // Assets must point to Frameworks directory so BareKit can resolve linked native addons
         #if os(macOS)
@@ -207,7 +212,9 @@ public final class BareWorkletBridge: @unchecked Sendable {
         #endif
         config.assets = frameworksPath
 
-        let w = BareWorklet(configuration: config)!
+        guard let w = BareWorklet(configuration: config) else {
+            throw NSError(domain: "BareWorkletBridge", code: 2, userInfo: [NSLocalizedDescriptionKey: "BareWorklet(configuration:) returned nil"])
+        }
         worklet = w
 
         // IMPORTANT: Start worklet BEFORE creating IPC
@@ -215,19 +222,24 @@ public final class BareWorkletBridge: @unchecked Sendable {
         let bundlePath = (assetsPath as NSString).appendingPathComponent("worklet.bundle")
         guard let bundleData = FileManager.default.contents(atPath: bundlePath) else {
             print("[bare] ERROR: worklet.bundle not found at \(bundlePath)")
-            return
+            worklet = nil
+            throw NSError(domain: "BareWorkletBridge", code: 3, userInfo: [NSLocalizedDescriptionKey: "worklet.bundle not found at \(bundlePath)"])
         }
 
         // Load bundle as UTF-8 string and use start:source:encoding: with .bundle filename
         guard let bundleStr = String(data: bundleData, encoding: .utf8) else {
             print("[bare] ERROR: worklet.bundle is not valid UTF-8")
-            return
+            worklet = nil
+            throw NSError(domain: "BareWorkletBridge", code: 4, userInfo: [NSLocalizedDescriptionKey: "worklet.bundle is not valid UTF-8"])
         }
         w.start("/worklet.bundle", source: bundleStr, encoding: String.Encoding.utf8.rawValue, arguments: nil)
         print("[bare] Worklet started (\(bundleData.count) bytes)")
 
         // Create IPC AFTER start - pipe fds are only valid after worklet starts
-        let bareIpc = BareIPC(worklet: w)!
+        guard let bareIpc = BareIPC(worklet: w) else {
+            worklet = nil
+            throw NSError(domain: "BareWorkletBridge", code: 5, userInfo: [NSLocalizedDescriptionKey: "BareIPC(worklet:) returned nil"])
+        }
         ipc = bareIpc
 
         // Read IPC data directly in the callback thread.
@@ -418,6 +430,33 @@ public final class BareWorkletBridge: @unchecked Sendable {
     /// Diagnostic summary for heartbeat logging.
     public func diagnosticSummary() -> String {
         return "ipcReads=\(ipcReadCount) streamDataRecv=\(streamDataRecvCount) ch=\(ch0RecvCount)/\(ch1RecvCount)/\(ch2RecvCount)/\(chOtherRecvCount) recvBuf=\(recvBuf.count - recvBufOffset) pendingWrite=\(pendingWrite.count) chunkBufs=\(chunkBuffers.count) assembled=\(chunkAssembledCount) replaced=\(chunkReplacedCount) unchunked=\(unchunkedCount) orphaned=\(orphanedChunkCount) ch0chunked=\(ch0ChunkedCount) dropped=\(droppedFrameCount) ch0gate=\(ch0DropCount)"
+    }
+
+    /// Save DHT keypair to Keychain instead of UserDefaults.
+    static func saveDhtKeypairToKeychain(publicKey: String, secretKey: String) {
+        let service = "com.peariscope.dht"
+        let account = "dht-keypair"
+        let payload: [String: String] = ["publicKey": publicKey, "secretKey": secretKey]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+
+        // Delete existing item first
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data,
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        if status != errSecSuccess {
+            NSLog("[bare] Failed to save DHT keypair to Keychain: %d", status)
+        }
     }
 
     public func terminate() {
@@ -888,7 +927,6 @@ public final class BareWorkletBridge: @unchecked Sendable {
         case .log:
             if let json = parseJSON(rest) {
                 let msg = json["message"] as? String ?? ""
-                NSLog("[bare-js] %@", msg)
                 onLog?(msg)
             }
 
@@ -907,8 +945,7 @@ public final class BareWorkletBridge: @unchecked Sendable {
                 // Save keypair from worklet for persistence across launches
                 if let kp = json["keypair"] as? [String: String],
                    let pubKey = kp["publicKey"], let secKey = kp["secretKey"] {
-                    UserDefaults.standard.set(pubKey, forKey: "peariscope.dhtPublicKey")
-                    UserDefaults.standard.set(secKey, forKey: "peariscope.dhtSecretKey")
+                    Self.saveDhtKeypairToKeychain(publicKey: pubKey, secretKey: secKey)
                     NSLog("[bare] Saved DHT keypair for persistence: %@...", String(pubKey.prefix(16)))
                 }
             }
@@ -925,6 +962,13 @@ public final class BareWorkletBridge: @unchecked Sendable {
                 if !binaryPayload.isEmpty {
                     onOtaUpdate?(version, binaryPayload)
                 }
+            }
+
+        case .connectionStatus:
+            if let json = parseJSON(rest) {
+                let phase = json["phase"] as? String ?? ""
+                let detail = json["detail"] as? String ?? ""
+                onConnectionStatus?(phase, detail)
             }
         }
     }

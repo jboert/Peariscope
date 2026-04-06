@@ -8,6 +8,8 @@ enum CrashLog {
     nonisolated(unsafe) static var logPath: String = ""
     /// Stash the previous session's log so it survives setup() truncation
     nonisolated(unsafe) static var previousLog: String?
+    nonisolated(unsafe) static var previousSessionCrashed = false
+    nonisolated(unsafe) static var previousSessionPeakMem = 0
 
     enum LogLevel: String {
         case info = "info"
@@ -22,6 +24,26 @@ enum CrashLog {
 
         // Read the PREVIOUS session's log before we overwrite the file
         previousLog = try? String(contentsOfFile: logPath, encoding: .utf8)
+
+        // Detect unclean shutdown: if the previous log has no clean exit marker,
+        // the app was likely killed by jetsam or crashed.
+        if let prev = previousLog, !prev.isEmpty {
+            let hadCleanExit = prev.contains("\"msg\":\"App entering background\"") ||
+                               prev.contains("\"msg\":\"App terminating\"") ||
+                               prev.contains("\"msg\":\"User disconnected\"")
+            if !hadCleanExit {
+                var peakMem = 0
+                for line in prev.components(separatedBy: "\n") where line.contains("mem_mb") {
+                    if let range = line.range(of: "\"mem_mb\":"),
+                       let end = line[range.upperBound...].firstIndex(where: { !$0.isNumber }),
+                       let mem = Int(line[range.upperBound..<end]) {
+                        peakMem = max(peakMem, mem)
+                    }
+                }
+                previousSessionCrashed = true
+                previousSessionPeakMem = peakMem
+            }
+        }
 
         // Now truncate and start fresh for this session
         FileManager.default.createFile(atPath: logPath, contents: nil)

@@ -4,6 +4,7 @@ import PeariscopeCore
 
 struct IOSSettingsView: View {
     @ObservedObject var networkManager: NetworkManager
+    @ObservedObject private var theme = ThemeManager.shared
     @Binding var isPresented: Bool
 
     @State private var localDiscoveryEnabled: Bool = UserDefaults.standard.object(forKey: "peariscope.localDiscovery") as? Bool ?? true
@@ -11,6 +12,25 @@ struct IOSSettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Appearance
+                Section {
+                    Picker(selection: $theme.current) {
+                        ForEach(AppTheme.allCases) { t in
+                            HStack {
+                                Circle()
+                                    .fill(t.accentColor)
+                                    .frame(width: 14, height: 14)
+                                Text(t.displayName)
+                            }
+                            .tag(t)
+                        }
+                    } label: {
+                        Label("Theme", systemImage: "paintpalette")
+                    }
+                } header: {
+                    Text("Appearance")
+                }
+
                 // Discovery
                 Section {
                     Toggle(isOn: $localDiscoveryEnabled) {

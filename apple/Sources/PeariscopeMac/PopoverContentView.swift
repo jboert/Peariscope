@@ -6,6 +6,7 @@ import PeariscopeCore
 struct PopoverContentView: View {
     @ObservedObject var networkManager: NetworkManager
     @ObservedObject var hostSession: HostSession
+    @ObservedObject private var theme = ThemeManager.shared
     let onOpenViewer: () -> Void
     let onQuit: () -> Void
 
@@ -43,12 +44,12 @@ struct PopoverContentView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image("AppLogo")
+            Image(ThemeManager.shared.current.logoImageName)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 22, height: 22)
 
-            Text("PEARISCOPE")
+            Text(ThemeManager.shared.current.displayName.uppercased())
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .tracking(1.5)
                 .foregroundStyle(.primary)

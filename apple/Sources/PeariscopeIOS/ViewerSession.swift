@@ -6,6 +6,7 @@ import UIKit
 import PeariscopeCore
 import AVFoundation
 import AVKit
+import Combine
 
 // MARK: - iOS Viewer Session
 
@@ -68,6 +69,9 @@ final class IOSViewerSession: ObservableObject {
     private var thermalObserver: NSObjectProtocol?
     private var lastBridgeDiag: String = ""
     private var bridgeStaleCount = 0
+    private var reconnectStateCancellable: AnyCancellable?
+    private var memoryWatchdog = MemoryWatchdog()
+    private var memoryCancellable: AnyCancellable?
 
     // Jitter tracking: variance in inter-frame arrival times
     nonisolated(unsafe) private var lastFrameArrival: CFAbsoluteTime = 0
@@ -178,7 +182,12 @@ final class IOSViewerSession: ObservableObject {
         networkManager.onPeerDisconnected = { [weak self] peer in
             guard let self else { return }
             Task { @MainActor in
-                self.attemptReconnect()
+                // ReconnectionManager drives reconnect state via its published state.
+                // Only fall back to local attemptReconnect if manager is idle
+                // (e.g. user-initiated disconnect won't trigger manager).
+                if self.networkManager.reconnectionManager.state == .idle {
+                    self.attemptReconnect()
+                }
             }
         }
 
@@ -212,6 +221,29 @@ final class IOSViewerSession: ObservableObject {
         // Set up networkManager callbacks ONCE. Must happen here (not init)
         // because @StateObject creates throwaway sessions during re-renders.
         configureCallbacks()
+
+        // Subscribe to reconnection manager state changes
+        reconnectStateCancellable = networkManager.reconnectionManager.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newState in
+                guard let self else { return }
+                switch newState {
+                case .reconnecting:
+                    self.isReconnecting = true
+                    self.connectionLost = false
+                case .failed:
+                    self.isReconnecting = false
+                    self.connectionLost = true
+                case .idle:
+                    // If we were reconnecting and now idle, reconnect succeeded
+                    if self.isReconnecting {
+                        self.isReconnecting = false
+                        self.connectionLost = false
+                        self.requestIDR()
+                    }
+                }
+            }
+
         // Reset static counters so FIRST VIDEO DATA logs each time
         IOSViewerSession.routeCount = 0
         // Stop any existing decoders to prevent dangling Unmanaged pointers
@@ -264,6 +296,25 @@ final class IOSViewerSession: ObservableObject {
 
         h264Decoder = h264
         h265Decoder = h265
+
+        memoryWatchdog.start()
+        memoryCancellable = memoryWatchdog.$pressure
+            .removeDuplicates()
+            .sink { [weak self] pressure in
+                guard let self else { return }
+                switch pressure {
+                case .warning:
+                    self.h265Decoder?.flushQueue()
+                    NSLog("[viewer] Memory warning: flushed decoder queue")
+                case .critical:
+                    self.networkManager.setDirectVideoCallback(nil)
+                    self.h265Decoder?.resetSession()
+                    self.h264Decoder?.resetSession()
+                    NSLog("[viewer] Memory critical: paused decoding")
+                case .normal:
+                    break
+                }
+            }
 
         addDiag("setup: decoders+renderer created")
 
@@ -615,6 +666,23 @@ final class IOSViewerSession: ObservableObject {
         lastCode = code
     }
 
+    /// Retry connection after all automatic reconnect attempts failed.
+    /// Called from the "Retry" button in ViewerView.
+    func retryConnection() {
+        guard let code = lastCode else { return }
+        connectionLost = false
+        isReconnecting = true
+        Task {
+            do {
+                try await networkManager.connectFromQR(code)
+            } catch {
+                NSLog("[viewer] retryConnection failed: %@", error.localizedDescription)
+                isReconnecting = false
+                connectionLost = true
+            }
+        }
+    }
+
     // [14] Send quality report to host for adaptive bitrate
     /// Record a frame arrival for jitter calculation. Called from decode callback.
     private func recordFrameArrival() {
@@ -736,6 +804,12 @@ final class IOSViewerSession: ObservableObject {
 
     func disconnect() {
         isReconnecting = false
+        connectionLost = false
+        memoryWatchdog.stop()
+        memoryCancellable?.cancel()
+        memoryCancellable = nil
+        reconnectStateCancellable?.cancel()
+        reconnectStateCancellable = nil
         fpsTimer?.invalidate()
         fpsTimer = nil
         qualityReportTimer?.invalidate()

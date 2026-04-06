@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -33,6 +34,8 @@ public final class NetworkManager: ObservableObject {
         case failed(String)
     }
     @Published public var otaStatus: OtaStatus = .idle
+    @Published public var connectionPhase: String?
+    @Published public var connectionPhaseDetail: String?
 
     public let bareBridge = BareWorkletBridge()
     // Keep legacy IPC client for fallback if BareKit isn't available
@@ -51,6 +54,9 @@ public final class NetworkManager: ObservableObject {
     private var streamDataCount = 0
     /// When true, ignore incoming peer connections (user explicitly disconnected)
     private var suppressConnections = false
+    /// Tracks whether the most recent disconnect was user-initiated (vs stream drop)
+    private var _userInitiatedDisconnect = false
+    public var isUserInitiatedDisconnect: Bool { _userInitiatedDisconnect }
     public var onVideoData: ((Data) -> Void)?
     public var onAudioData: ((Data) -> Void)?
     public var onInputData: ((Data) -> Void)?
@@ -171,6 +177,8 @@ public final class NetworkManager: ObservableObject {
                 self.connectedPeers.append(peer)
                 self.isConnected = true
                 self.isConnecting = false
+                self.connectionPhase = nil
+                self.connectionPhaseDetail = nil
                 NSLog("[net] isConnected=true, isConnecting=false, peers=%d", self.connectedPeers.count)
                 self.onPeerConnected?(peer)
             }
@@ -187,7 +195,8 @@ public final class NetworkManager: ObservableObject {
                 // Create a synthetic PeerState if needed so HostSession can clean up.
                 let peer = removedPeer ?? PeerState(id: event.peerKeyHex, name: "", streamId: 0)
                 self.onPeerDisconnected?(peer)
-                if let code = self.lastConnectionCode {
+                if !self._userInitiatedDisconnect && self.connectedPeers.isEmpty,
+                   let code = self.lastConnectionCode {
                     self.reconnectionManager.peerDisconnected(
                         code: code,
                         peerKey: Data(hex: event.peerKeyHex)
@@ -269,6 +278,13 @@ public final class NetworkManager: ObservableObject {
             self?.onJSLog?(message)
         }
 
+        bareBridge.onConnectionStatus = { [weak self] phase, detail in
+            DispatchQueue.main.async {
+                self?.connectionPhase = phase
+                self?.connectionPhaseDetail = detail
+            }
+        }
+
         bareBridge.onStatusResponse = { [weak self] event in
             Task { @MainActor in
                 guard let self else { return }
@@ -294,26 +310,8 @@ public final class NetworkManager: ObservableObject {
             self?.onLookupResult?(code, online)
         }
 
-        bareBridge.onOtaUpdate = { [weak self] version, bundleData in
-            Task { @MainActor in
-                guard let self else { return }
-                self.debugLog("[ota] Received update v\(version), \(bundleData.count) bytes")
-                self.otaStatus = .downloading
-
-                let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                let bundleURL = docsDir.appendingPathComponent("worklet-ota.bundle")
-                let versionURL = docsDir.appendingPathComponent("worklet-ota.version")
-
-                do {
-                    try bundleData.write(to: bundleURL)
-                    try version.write(to: versionURL, atomically: true, encoding: .utf8)
-                    self.debugLog("[ota] Saved OTA bundle to \(bundleURL.path)")
-                    self.otaStatus = .ready(version: version)
-                } catch {
-                    self.debugLog("[ota] Failed to save OTA bundle: \(error)")
-                    self.otaStatus = .failed(error.localizedDescription)
-                }
-            }
+        bareBridge.onOtaUpdate = { [weak self] version, _ in
+            self?.debugLog("[ota] OTA updates disabled for security — ignoring v\(version)")
         }
 
         // Reconnection handler
@@ -491,8 +489,8 @@ public final class NetworkManager: ObservableObject {
 
     /// Start the Pear runtime. Tries BareKit first, falls back to Node.js on macOS.
     private static let logFile: FileHandle? = {
-        let path = "/tmp/peariscope-debug.log"
-        FileManager.default.createFile(atPath: path, contents: nil)
+        let path = NSTemporaryDirectory() + "peariscope-debug.log"
+        FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
         return FileHandle(forWritingAtPath: path)
     }()
 
@@ -505,6 +503,29 @@ public final class NetworkManager: ObservableObject {
             Self.logFile?.seekToEndOfFile()
             Self.logFile?.write(data)
         }
+    }
+
+    // MARK: - DHT Keypair Keychain
+
+    /// Load DHT keypair from Keychain.
+    static func loadDhtKeypairFromKeychain() -> (publicKey: String, secretKey: String)? {
+        let service = "com.peariscope.dht"
+        let account = "dht-keypair"
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+              let pub = json["publicKey"], let sec = json["secretKey"] else {
+            return nil
+        }
+        return (publicKey: pub, secretKey: sec)
     }
 
     // MARK: - DHT Node Cache
@@ -644,11 +665,10 @@ public final class NetworkManager: ObservableObject {
                 // and identity persistence (same keypair = same NAT mappings on CGNAT)
                 let freshNodes = Self.loadCachedDhtNodes()
                 let cachedKeypair: (publicKey: String, secretKey: String)?
-                if let pubKey = UserDefaults.standard.string(forKey: "peariscope.dhtPublicKey"),
-                   let secKey = UserDefaults.standard.string(forKey: "peariscope.dhtSecretKey"),
-                   pubKey.count == 64 && secKey.count == 128 {
-                    cachedKeypair = (publicKey: pubKey, secretKey: secKey)
-                    debugLog("[net] Sending cached keypair: \(pubKey.prefix(16))...")
+                if let kp = Self.loadDhtKeypairFromKeychain(),
+                   kp.publicKey.count == 64 && kp.secretKey.count == 128 {
+                    cachedKeypair = (publicKey: kp.publicKey, secretKey: kp.secretKey)
+                    debugLog("[net] Sending cached keypair: \(kp.publicKey.prefix(16))...")
                 } else {
                     cachedKeypair = nil
                 }
@@ -705,6 +725,7 @@ public final class NetworkManager: ObservableObject {
     // MARK: - Hosting
 
     public func startHosting() async throws {
+        _userInitiatedDisconnect = false
         suppressConnections = false
         let newCodeEachSession = UserDefaults.standard.bool(forKey: "peariscope.newCodeEachSession")
         let savedCode = newCodeEachSession ? nil : UserDefaults.standard.string(forKey: "peariscope.lastConnectionWords")
@@ -766,6 +787,7 @@ public final class NetworkManager: ObservableObject {
     // MARK: - Connecting
 
     public func connect(code: String) async throws {
+        _userInitiatedDisconnect = false
         // Clean up any stale state from previous connections before starting new one.
         // This is critical: if the previous peer disconnected on their end, the JS worklet
         // may still have the old swarm topic joined. Without this cleanup, the swarm
@@ -804,6 +826,7 @@ public final class NetworkManager: ObservableObject {
     /// Connect to a LAN-discovered peer by injecting its local address into the DHT.
     /// Falls back to regular DHT-based connect if host/port are unavailable.
     public func connectLocal(code: String, hostIP: String, dhtPort: UInt16) async throws {
+        _userInitiatedDisconnect = false
         reconnectionManager.cancelAll()
         if useBareKit && bareBridge.isAlive {
             bareBridge.disconnectAllPeers()
@@ -836,6 +859,7 @@ public final class NetworkManager: ObservableObject {
 
     /// Parse a peariscope:// QR URI and connect appropriately
     public func connectFromQR(_ scannedString: String) async throws {
+        _userInitiatedDisconnect = false
         if scannedString.hasPrefix("peariscope://relay?") {
             guard let url = URL(string: scannedString),
                   let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -919,6 +943,7 @@ public final class NetworkManager: ObservableObject {
     // MARK: - Disconnect
 
     public func disconnectAll() {
+        _userInitiatedDisconnect = true
         reconnectionManager.cancelAll()
         lastConnectionCode = nil
         suppressConnections = true
@@ -932,6 +957,8 @@ public final class NetworkManager: ObservableObject {
         connectedPeers.removeAll()
         isConnected = false
         isConnecting = false
+        connectionPhase = nil
+        connectionPhaseDetail = nil
         // suppressConnections stays true until the next explicit connect() or
         // startHosting() call. This prevents Hyperswarm from re-establishing
         // the connection after the user explicitly disconnects.
