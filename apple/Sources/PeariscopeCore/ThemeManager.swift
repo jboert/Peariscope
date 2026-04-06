@@ -34,7 +34,15 @@ public enum AppTheme: String, CaseIterable, Identifiable {
     public var logoImageName: String {
         switch self {
         case .peariscope: return "AppLogo"
-        case .berriscope: return "AppLogo"
+        case .berriscope: return "GrapeLogo"
+        }
+    }
+
+    /// iOS alternate icon name (nil = default)
+    public var alternateIconName: String? {
+        switch self {
+        case .peariscope: return nil
+        case .berriscope: return "BerriscopeIcon"
         }
     }
 }

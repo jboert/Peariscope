@@ -14,19 +14,35 @@ struct IOSSettingsView: View {
             List {
                 // Appearance
                 Section {
-                    Picker(selection: $theme.current) {
+                    HStack(spacing: 12) {
                         ForEach(AppTheme.allCases) { t in
-                            HStack {
-                                Circle()
-                                    .fill(t.accentColor)
-                                    .frame(width: 14, height: 14)
-                                Text(t.displayName)
+                            Button {
+                                theme.current = t
+                                // Switch iOS app icon
+                                if UIApplication.shared.supportsAlternateIcons {
+                                    UIApplication.shared.setAlternateIconName(t.alternateIconName)
+                                }
+                            } label: {
+                                VStack(spacing: 8) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(t.accentColor.gradient)
+                                            .frame(height: 60)
+                                        if theme.current == t {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 20))
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
+                                    Text(t.displayName)
+                                        .font(.system(size: 13, weight: theme.current == t ? .semibold : .regular))
+                                        .foregroundStyle(theme.current == t ? .primary : .secondary)
+                                }
                             }
-                            .tag(t)
+                            .buttonStyle(.plain)
                         }
-                    } label: {
-                        Label("Theme", systemImage: "paintpalette")
                     }
+                    .padding(.vertical, 4)
                 } header: {
                     Text("Appearance")
                 }

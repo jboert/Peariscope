@@ -7,6 +7,7 @@ import Sparkle
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusCancellables = Set<AnyCancellable>()
+    private var themeCancellable: AnyCancellable?
     private var viewerWindow: NSWindow?
     private var healthTimer: Timer?
     private var staleCount = 0
@@ -46,12 +47,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.observeStatus()
         }
 
+        // Observe theme changes to update dock icon
+        themeCancellable = ThemeManager.shared.$current
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newTheme in
+                self?.updateDockIcon(for: newTheme)
+            }
+
         startRuntime()
         startHealthWatchdog()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    // MARK: - Dock Icon
+
+    private func updateDockIcon(for theme: AppTheme) {
+        if theme == .berriscope {
+            if let image = NSImage(named: "BerriscopeIcon") {
+                NSApplication.shared.applicationIconImage = image
+            }
+        } else {
+            NSApplication.shared.applicationIconImage = nil
+        }
     }
 
     // MARK: - Status Item Icon

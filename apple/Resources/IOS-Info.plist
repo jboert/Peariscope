@@ -44,6 +44,21 @@
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>
     <true/>
+    <key>CFBundleIcons</key>
+    <dict>
+        <key>CFBundleAlternateIcons</key>
+        <dict>
+            <key>BerriscopeIcon</key>
+            <dict>
+                <key>CFBundleIconFiles</key>
+                <array>
+                    <string>BerriscopeIcon</string>
+                </array>
+                <key>UIPreRenderedIcon</key>
+                <true/>
+            </dict>
+        </dict>
+    </dict>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

@@ -32,13 +32,35 @@ struct SettingsView: View {
                     title: "Theme",
                     subtitle: "App color scheme"
                 ) {
-                    Picker("", selection: $theme.current) {
-                        ForEach(AppTheme.allCases) { theme in
-                            Text(theme.displayName).tag(theme)
+                    HStack(spacing: 8) {
+                        ForEach(AppTheme.allCases) { t in
+                            Button {
+                                theme.current = t
+                                // Update dock icon
+                                if t == .berriscope {
+                                    if let image = NSImage(named: "BerriscopeIcon") {
+                                        NSApplication.shared.applicationIconImage = image
+                                    }
+                                } else {
+                                    NSApplication.shared.applicationIconImage = nil
+                                }
+                            } label: {
+                                VStack(spacing: 6) {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(t.accentColor.gradient)
+                                        .frame(width: 44, height: 44)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .strokeBorder(theme.current == t ? Color.primary : Color.clear, lineWidth: 2)
+                                        )
+                                    Text(t.displayName)
+                                        .font(.system(size: 9, weight: theme.current == t ? .bold : .regular))
+                                        .foregroundStyle(theme.current == t ? .primary : .secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 160)
                 }
 
                 // --- Security ---
