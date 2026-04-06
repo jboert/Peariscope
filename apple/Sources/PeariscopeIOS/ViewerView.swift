@@ -252,31 +252,49 @@ struct IOSViewerView: View {
         }
         .overlay {
             // Connection lost / reconnecting banners
-            if viewerSession.connectionLost {
+            if viewerSession.connectionLost && !viewerSession.isReconnecting {
                 VStack {
                     Spacer()
-                    VStack(spacing: 12) {
+                    VStack(spacing: 16) {
                         Image(systemName: "wifi.slash")
                             .font(.title)
                             .foregroundStyle(.white)
                         Text("Connection Lost")
                             .font(.headline)
                             .foregroundStyle(.white)
-                        Text("Returning to home screen...")
+                        Text("All reconnect attempts failed.")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.7))
+                        HStack(spacing: 16) {
+                            Button {
+                                viewerSession.retryConnection()
+                            } label: {
+                                Text("Retry")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 10)
+                                    .background(Color.pearGreen)
+                                    .clipShape(Capsule())
+                            }
+                            Button {
+                                viewerSession.disconnect()
+                                isInViewerMode = false
+                            } label: {
+                                Text("Disconnect")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 10)
+                                    .background(Color.white.opacity(0.2))
+                                    .clipShape(Capsule())
+                            }
+                        }
                     }
                     .padding(20)
                     .background(Color.black.opacity(0.85))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .padding(.bottom, 80)
-                }
-                .onAppear {
-                    // Auto-exit after showing the message briefly
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        viewerSession.disconnect()
-                        isInViewerMode = false
-                    }
                 }
             } else if viewerSession.isReconnecting {
                 VStack {
@@ -284,9 +302,15 @@ struct IOSViewerView: View {
                     HStack(spacing: 10) {
                         ProgressView()
                             .tint(.white)
-                        Text("Reconnecting...")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.white)
+                        if case .reconnecting(let attempt, let max) = networkManager.reconnectionManager.state {
+                            Text("Reconnecting (\(attempt)/\(max))...")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.white)
+                        } else {
+                            Text("Reconnecting...")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.white)
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 10)

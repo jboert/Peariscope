@@ -54,6 +54,9 @@ public final class NetworkManager: ObservableObject {
     private var streamDataCount = 0
     /// When true, ignore incoming peer connections (user explicitly disconnected)
     private var suppressConnections = false
+    /// Tracks whether the most recent disconnect was user-initiated (vs stream drop)
+    private var _userInitiatedDisconnect = false
+    public var isUserInitiatedDisconnect: Bool { _userInitiatedDisconnect }
     public var onVideoData: ((Data) -> Void)?
     public var onAudioData: ((Data) -> Void)?
     public var onInputData: ((Data) -> Void)?
@@ -192,7 +195,8 @@ public final class NetworkManager: ObservableObject {
                 // Create a synthetic PeerState if needed so HostSession can clean up.
                 let peer = removedPeer ?? PeerState(id: event.peerKeyHex, name: "", streamId: 0)
                 self.onPeerDisconnected?(peer)
-                if let code = self.lastConnectionCode {
+                if !self._userInitiatedDisconnect && self.connectedPeers.isEmpty,
+                   let code = self.lastConnectionCode {
                     self.reconnectionManager.peerDisconnected(
                         code: code,
                         peerKey: Data(hex: event.peerKeyHex)
@@ -721,6 +725,7 @@ public final class NetworkManager: ObservableObject {
     // MARK: - Hosting
 
     public func startHosting() async throws {
+        _userInitiatedDisconnect = false
         suppressConnections = false
         let newCodeEachSession = UserDefaults.standard.bool(forKey: "peariscope.newCodeEachSession")
         let savedCode = newCodeEachSession ? nil : UserDefaults.standard.string(forKey: "peariscope.lastConnectionWords")
@@ -782,6 +787,7 @@ public final class NetworkManager: ObservableObject {
     // MARK: - Connecting
 
     public func connect(code: String) async throws {
+        _userInitiatedDisconnect = false
         // Clean up any stale state from previous connections before starting new one.
         // This is critical: if the previous peer disconnected on their end, the JS worklet
         // may still have the old swarm topic joined. Without this cleanup, the swarm
@@ -820,6 +826,7 @@ public final class NetworkManager: ObservableObject {
     /// Connect to a LAN-discovered peer by injecting its local address into the DHT.
     /// Falls back to regular DHT-based connect if host/port are unavailable.
     public func connectLocal(code: String, hostIP: String, dhtPort: UInt16) async throws {
+        _userInitiatedDisconnect = false
         reconnectionManager.cancelAll()
         if useBareKit && bareBridge.isAlive {
             bareBridge.disconnectAllPeers()
@@ -852,6 +859,7 @@ public final class NetworkManager: ObservableObject {
 
     /// Parse a peariscope:// QR URI and connect appropriately
     public func connectFromQR(_ scannedString: String) async throws {
+        _userInitiatedDisconnect = false
         if scannedString.hasPrefix("peariscope://relay?") {
             guard let url = URL(string: scannedString),
                   let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -935,6 +943,7 @@ public final class NetworkManager: ObservableObject {
     // MARK: - Disconnect
 
     public func disconnectAll() {
+        _userInitiatedDisconnect = true
         reconnectionManager.cancelAll()
         lastConnectionCode = nil
         suppressConnections = true

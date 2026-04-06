@@ -1,8 +1,17 @@
 import Foundation
+import Combine
 
 /// Handles automatic reconnection when a peer disconnects unexpectedly.
 /// Uses exponential backoff with jitter.
-public final class ReconnectionManager: @unchecked Sendable {
+public final class ReconnectionManager: ObservableObject, @unchecked Sendable {
+    public enum ReconnectState: Equatable {
+        case idle
+        case reconnecting(attempt: Int, max: Int)
+        case failed
+    }
+
+    @Published public var state: ReconnectState = .idle
+
     public struct PeerRecord: Sendable {
         public let connectionCode: String
         public let peerKey: Data
@@ -29,6 +38,7 @@ public final class ReconnectionManager: @unchecked Sendable {
             let record = PeerRecord(connectionCode: code, peerKey: peerKey, attempts: 0, lastAttempt: Date())
             disconnectedPeers[keyHex] = record
         }
+        DispatchQueue.main.async { self.state = .reconnecting(attempt: 1, max: self.maxAttempts) }
         scheduleReconnect(keyHex: keyHex)
     }
 
@@ -49,6 +59,7 @@ public final class ReconnectionManager: @unchecked Sendable {
             timers.removeAll()
             disconnectedPeers.removeAll()
         }
+        DispatchQueue.main.async { self.state = .idle }
     }
 
     private func scheduleReconnect(keyHex: String) {
@@ -67,9 +78,12 @@ public final class ReconnectionManager: @unchecked Sendable {
 
         guard let record else { return }
         if shouldGiveUp {
+            DispatchQueue.main.async { self.state = .failed }
             onReconnectGaveUp?(record)
             return
         }
+
+        DispatchQueue.main.async { self.state = .reconnecting(attempt: record.attempts, max: self.maxAttempts) }
 
         // Exponential backoff with jitter
         let delay = min(baseDelay * pow(2.0, Double(record.attempts - 1)), maxDelay)
