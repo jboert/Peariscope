@@ -49,7 +49,8 @@ const MSG = {
   LOG: 0x8A,
   LOOKUP_RESULT: 0x8B,
   DHT_NODES: 0x8C,
-  UPDATE_AVAILABLE: 0x8D
+  UPDATE_AVAILABLE: 0x8D,
+  CONNECTION_STATUS: 0x8E
 }
 
 let ipcPipe = null
@@ -353,6 +354,10 @@ function _resumeStreamsIfNeeded () {
 
 function sendLog (msg) {
   sendFrame(MSG.LOG, { message: msg })
+}
+
+function sendConnectionStatus (phase, detail) {
+  sendFrame(MSG.CONNECTION_STATUS, { phase, detail })
 }
 
 // --- Load core modules ---
@@ -738,6 +743,7 @@ class PeariscopeWorklet {
     }
 
     this._lastViewerTopic = this._deriveTopicFromCode(code)
+    sendConnectionStatus('starting', 'Starting network...')
     this._connectAttempt(code, 1).catch((err) => {
       sendLog('connectToPeer error: ' + (err.message || err))
       sendFrame(MSG.CONNECTION_FAILED, { code, reason: err.message || 'Unknown error' })
@@ -756,15 +762,20 @@ class PeariscopeWorklet {
     }
 
     sendLog('Connection attempt ' + attempt + '/' + maxAttempts + ' for code: ' + code)
+    if (attempt > 1) {
+      sendConnectionStatus('retry', 'Retrying... (' + attempt + '/' + maxAttempts + ')')
+    }
 
     const topic = this._deriveTopicFromCode(code)
     const discovery = this.swarm.join(topic, { server: false, client: true })
 
     this._connectionSucceeded = false
+    sendConnectionStatus('searching', 'Searching for host...')
 
     // Non-blocking: log when DHT lookup and swarm flush complete
     discovery.flushed().then(() => {
       sendLog('DHT lookup flushed for code: ' + code + ' (attempt ' + attempt + ')')
+      sendConnectionStatus('connecting', 'Connecting to host...')
     }).catch((err) => {
       sendLog('DHT lookup flush error: ' + (err.message || err))
     })
@@ -783,6 +794,7 @@ class PeariscopeWorklet {
 
       if (attempt < maxAttempts) {
         sendLog('Attempt ' + attempt + ' timed out, retrying...')
+        sendConnectionStatus('timeout', 'Attempt ' + attempt + ' timed out, retrying...')
         this._connectAttempt(code, attempt + 1)
       } else {
         sendFrame(MSG.CONNECTION_FAILED, {
@@ -1008,6 +1020,11 @@ class PeariscopeWorklet {
     if (this._pendingConnection) {
       clearTimeout(this._pendingConnection.timeout)
       this._connectionSucceeded = true
+      if (stream.relayType) {
+        sendConnectionStatus('relay', 'Connected via relay')
+      } else {
+        sendConnectionStatus('connected', 'Direct connection established')
+      }
       sendFrame(MSG.CONNECTION_ESTABLISHED, {
         peerKeyHex: keyHex,
         streamId

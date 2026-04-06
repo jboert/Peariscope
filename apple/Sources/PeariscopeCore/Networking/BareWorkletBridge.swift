@@ -34,6 +34,7 @@ private enum WorkletToNative: UInt8 {
     case lookupResult = 0x8B
     case dhtNodes = 0x8C
     case otaUpdateAvailable = 0x8D
+    case connectionStatus = 0x8E
 }
 
 /// Events emitted by BareWorkletBridge.
@@ -192,6 +193,7 @@ public final class BareWorkletBridge: @unchecked Sendable {
     public var onLookupResult: ((String, Bool) -> Void)?  // (code, online)
     public var onDhtNodes: (([[String: Any]]) -> Void)?
     public var onOtaUpdate: ((String, Data) -> Void)?  // (version, bundleData)
+    public var onConnectionStatus: ((String, String) -> Void)?  // (phase, detail)
 
     public init() {}
 
@@ -961,6 +963,13 @@ public final class BareWorkletBridge: @unchecked Sendable {
                 if !binaryPayload.isEmpty {
                     onOtaUpdate?(version, binaryPayload)
                 }
+            }
+
+        case .connectionStatus:
+            if let json = parseJSON(rest) {
+                let phase = json["phase"] as? String ?? ""
+                let detail = json["detail"] as? String ?? ""
+                onConnectionStatus?(phase, detail)
             }
         }
     }

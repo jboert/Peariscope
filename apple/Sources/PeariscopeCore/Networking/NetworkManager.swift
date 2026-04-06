@@ -34,6 +34,8 @@ public final class NetworkManager: ObservableObject {
         case failed(String)
     }
     @Published public var otaStatus: OtaStatus = .idle
+    @Published public var connectionPhase: String?
+    @Published public var connectionPhaseDetail: String?
 
     public let bareBridge = BareWorkletBridge()
     // Keep legacy IPC client for fallback if BareKit isn't available
@@ -172,6 +174,8 @@ public final class NetworkManager: ObservableObject {
                 self.connectedPeers.append(peer)
                 self.isConnected = true
                 self.isConnecting = false
+                self.connectionPhase = nil
+                self.connectionPhaseDetail = nil
                 NSLog("[net] isConnected=true, isConnecting=false, peers=%d", self.connectedPeers.count)
                 self.onPeerConnected?(peer)
             }
@@ -268,6 +272,13 @@ public final class NetworkManager: ObservableObject {
         bareBridge.onLog = { [weak self] message in
             self?.debugLog("[bare-js] \(message)")
             self?.onJSLog?(message)
+        }
+
+        bareBridge.onConnectionStatus = { [weak self] phase, detail in
+            DispatchQueue.main.async {
+                self?.connectionPhase = phase
+                self?.connectionPhaseDetail = detail
+            }
         }
 
         bareBridge.onStatusResponse = { [weak self] event in
@@ -937,6 +948,8 @@ public final class NetworkManager: ObservableObject {
         connectedPeers.removeAll()
         isConnected = false
         isConnecting = false
+        connectionPhase = nil
+        connectionPhaseDetail = nil
         // suppressConnections stays true until the next explicit connect() or
         // startHosting() call. This prevents Hyperswarm from re-establishing
         // the connection after the user explicitly disconnects.

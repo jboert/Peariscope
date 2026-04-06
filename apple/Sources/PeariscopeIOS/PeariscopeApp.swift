@@ -403,6 +403,14 @@ struct IOSContentView: View {
                     .foregroundStyle(.secondary)
                     .animation(.easeInOut(duration: 0.3), value: connectingStatus)
 
+                if let phase = networkManager.connectionPhaseDetail {
+                    Text(phase)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.3), value: networkManager.connectionPhaseDetail)
+                }
+
                 HStack(spacing: 8) {
                     // Elapsed timer
                     Text(connectingElapsed < 60
