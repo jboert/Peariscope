@@ -356,6 +356,7 @@ struct IOSContentView: View {
     @State private var connectingElapsed: Int = 0
     @State private var connectingStatus: String = "Starting network..."
     @State private var dhtNodeCount: Int = 0
+    @State private var diagExpanded: Bool = true
 
     private var connectingView: some View {
         VStack(spacing: 0) {
@@ -437,7 +438,7 @@ struct IOSContentView: View {
             Spacer()
 
             // Diagnostic log (expanded by default for debugging)
-            DisclosureGroup(isExpanded: .constant(true)) {
+            DisclosureGroup(isExpanded: $diagExpanded) {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 2) {
