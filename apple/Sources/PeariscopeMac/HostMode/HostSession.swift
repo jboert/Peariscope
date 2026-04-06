@@ -107,7 +107,15 @@ public final class HostSession: ObservableObject {
         self.hasAccessibilityPermission = InputInjector.hasAccessibilityPermission
         self.useH265 = H265Encoder.isSupported
         self.requirePinVerification = UserDefaults.standard.object(forKey: "peariscope.requirePin") as? Bool ?? true
-        self.pinCode = Self.loadPinFromKeychain()
+        // Migrate PIN from UserDefaults to Keychain (one-time, after security hardening)
+        var pin = Self.loadPinFromKeychain()
+        if pin.isEmpty, let legacyPin = UserDefaults.standard.string(forKey: "peariscope.pinCode"), !legacyPin.isEmpty {
+            Self.savePinToKeychain(legacyPin)
+            UserDefaults.standard.removeObject(forKey: "peariscope.pinCode")
+            pin = legacyPin
+            HostSession.log("[host] Migrated PIN from UserDefaults to Keychain")
+        }
+        self.pinCode = pin
         let savedMaxViewers = UserDefaults.standard.integer(forKey: "peariscope.maxViewers")
         self.maxViewers = savedMaxViewers > 0 ? savedMaxViewers : 5
         // Default to enabled; user can disable if it causes issues
