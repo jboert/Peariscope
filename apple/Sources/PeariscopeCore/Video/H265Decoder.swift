@@ -396,21 +396,27 @@ public final class H265Decoder: @unchecked Sendable {
     }
 
     public func stop() {
-        queue.sync {
-            if let session {
-                VTDecompressionSessionWaitForAsynchronousFrames(session)
+        // Nil callbacks immediately to stop delivering decoded frames.
+        // This is safe from any thread — the decoder checks these before calling.
+        onDecodedFrame = nil
+        onCodecFallbackNeeded = nil
+        // Tear down VT session asynchronously on the decoder queue.
+        // NEVER use queue.sync here — the queue may be blocked in
+        // VTDecompressionSessionDecodeFrame/WaitForAsynchronousFrames,
+        // and sync from the main thread deadlocks (0x8BADF00D watchdog kill).
+        queue.async { [weak self] in
+            guard let self else { return }
+            if let session = self.session {
                 VTDecompressionSessionInvalidate(session)
                 self.session = nil
             }
-            self.onDecodedFrame = nil
-            self.onCodecFallbackNeeded = nil
-            formatDescription = nil
-            vps = nil
-            sps = nil
-            pps = nil
-            consecutiveDecodeErrors = 0
-            totalDecodeErrors = 0
-            fallbackRequested = false
+            self.formatDescription = nil
+            self.vps = nil
+            self.sps = nil
+            self.pps = nil
+            self.consecutiveDecodeErrors = 0
+            self.totalDecodeErrors = 0
+            self.fallbackRequested = false
         }
     }
 }

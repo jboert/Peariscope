@@ -834,8 +834,7 @@ final class IOSViewerSession: ObservableObject {
         networkManager.onAudioData = nil
         networkManager.onControlData = nil
         networkManager.onPeerDisconnected = nil
-        // Stop decoders first — this waits for pending VT frames, ensuring
-        // no more onDecodedFrame callbacks will fire after this returns
+        // Stop decoders — nils callbacks immediately, VT teardown is async
         h264Decoder?.stop()
         h264Decoder = nil
         h265Decoder?.stop()
