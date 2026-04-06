@@ -14,35 +14,17 @@ struct IOSSettingsView: View {
             List {
                 // Appearance
                 Section {
-                    HStack(spacing: 12) {
+                    Picker("Theme", selection: $theme.current) {
                         ForEach(AppTheme.allCases) { t in
-                            Button {
-                                theme.current = t
-                                // Switch iOS app icon
-                                if UIApplication.shared.supportsAlternateIcons {
-                                    UIApplication.shared.setAlternateIconName(t.alternateIconName)
-                                }
-                            } label: {
-                                VStack(spacing: 8) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(t.accentColor.gradient)
-                                            .frame(height: 60)
-                                        if theme.current == t {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .font(.system(size: 20))
-                                                .foregroundStyle(.white)
-                                        }
-                                    }
-                                    Text(t.displayName)
-                                        .font(.system(size: 13, weight: theme.current == t ? .semibold : .regular))
-                                        .foregroundStyle(theme.current == t ? .primary : .secondary)
-                                }
-                            }
-                            .buttonStyle(.plain)
+                            Text(t.displayName).tag(t)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .pickerStyle(.segmented)
+                    .onChange(of: theme.current) {
+                        if UIApplication.shared.supportsAlternateIcons {
+                            UIApplication.shared.setAlternateIconName(theme.current.alternateIconName)
+                        }
+                    }
                 } header: {
                     Text("Appearance")
                 }

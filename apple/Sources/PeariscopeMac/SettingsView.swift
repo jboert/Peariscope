@@ -32,33 +32,20 @@ struct SettingsView: View {
                     title: "Theme",
                     subtitle: "App color scheme"
                 ) {
-                    HStack(spacing: 8) {
+                    Picker("", selection: $theme.current) {
                         ForEach(AppTheme.allCases) { t in
-                            Button {
-                                theme.current = t
-                                // Update dock icon
-                                if t == .berriscope {
-                                    if let image = NSImage(named: "BerriscopeIcon") {
-                                        NSApplication.shared.applicationIconImage = image
-                                    }
-                                } else {
-                                    NSApplication.shared.applicationIconImage = nil
-                                }
-                            } label: {
-                                VStack(spacing: 6) {
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(t.accentColor.gradient)
-                                        .frame(width: 44, height: 44)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .strokeBorder(theme.current == t ? Color.primary : Color.clear, lineWidth: 2)
-                                        )
-                                    Text(t.displayName)
-                                        .font(.system(size: 9, weight: theme.current == t ? .bold : .regular))
-                                        .foregroundStyle(theme.current == t ? .primary : .secondary)
-                                }
+                            Text(t.displayName).tag(t)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 160)
+                    .onChange(of: theme.current) {
+                        if theme.current == .berriscope {
+                            if let image = NSImage(named: "BerriscopeIcon") {
+                                NSApplication.shared.applicationIconImage = image
                             }
-                            .buttonStyle(.plain)
+                        } else {
+                            NSApplication.shared.applicationIconImage = nil
                         }
                     }
                 }
