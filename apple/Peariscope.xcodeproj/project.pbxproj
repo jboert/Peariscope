@@ -25,13 +25,11 @@
 		1746E14BDC469676B5EC0D8F /* LocalDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E9C373CCF74F1C06F913F8 /* LocalDiscovery.swift */; };
 		18132A3FF309F07517CFBDB7 /* bare-structured-clone.1.5.2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE0F7F91639DECA12F28DAF9 /* bare-structured-clone.1.5.2.xcframework */; };
 		22CDC9F51D7FF620F1C75921 /* H265Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80B03F27952F62AE6C74792 /* H265Decoder.swift */; };
-		22F1A0B3D8E742A1BC5D9E01 /* MemoryWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* MemoryWatchdog.swift */; };
 		2352BA077F86414EBD876708 /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CE3DD122B6624C2A2D4C9C /* KeyManager.swift */; };
 		23BCAB013858FD69D5AEDDD8 /* bare-fs.4.5.5.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B3A90468AA3EE4B4D0FDE921 /* bare-fs.4.5.5.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		23DA3993D95FFF6AA3CE43BA /* bare-buffer.3.5.0.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 95E63E3910F8C90020AB3B57 /* bare-buffer.3.5.0.xcframework */; };
 		25C38485932725DB8884EE38 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D745B139C4A1617FA05E6E32 /* Theme.swift */; };
 		2C0A65932699F3ED8A9DE056 /* H265Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80B03F27952F62AE6C74792 /* H265Decoder.swift */; };
-		2C1F5A83B7D9E4F60A1B2C3D /* MemoryWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* MemoryWatchdog.swift */; };
 		308A15C33E2882DEA65F25C4 /* PearProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DC2119397B169ACEE7CFD9 /* PearProcess.swift */; };
 		3441D25C16305A89FC8547AE /* BareWorkletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFCE9803E1F196231F98D08 /* BareWorkletBridge.swift */; };
 		35FBE8F3E33D212715C122E7 /* LatencyTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E47FE932E6FA6BFD4EE21F /* LatencyTracker.swift */; };
@@ -63,6 +61,7 @@
 		686722602247B7379EDAC389 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = D303B43A63B4AE994FD47893 /* SwiftProtobuf */; };
 		6C142BDFE1B53AE09CAF56E6 /* BareKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; };
 		6E9E75C239C69CF50D112323 /* bare-module-lexer.1.4.7.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9C90E01D0473ED1593575617 /* bare-module-lexer.1.4.7.xcframework */; };
+		6EB7533984329554379D049C /* MemoryWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9B0DFFFE6267D66CB09592D /* MemoryWatchdog.swift */; };
 		7073A5BB9FFA5190408F4BD5 /* PeerFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F67F441BC51E9F67750CA05 /* PeerFingerprint.swift */; };
 		72677AE69ABFF618997237E3 /* bare-subprocess.5.2.2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A358C2847FC906352371B44 /* bare-subprocess.5.2.2.xcframework */; };
 		79EDB506EF8E6C54D5BA1644 /* bare-buffer.3.5.0.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 95E63E3910F8C90020AB3B57 /* bare-buffer.3.5.0.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -97,6 +96,7 @@
 		CC48A26B2A2DA15EF7C9C2D8 /* bare-pipe.4.1.3.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0C0D724BE6B8FBA62122CC7B /* bare-pipe.4.1.3.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CE496DE81491C28AC2A32843 /* InputInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A25FD64EF29C72A06DAC848 /* InputInjector.swift */; };
 		D1FD37171C292841FE9FCFD4 /* InputProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A70D2AE063102E8C714B0B7 /* InputProtocol.swift */; };
+		D3D803BB5CD0CCF08D1B452C /* MemoryWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9B0DFFFE6267D66CB09592D /* MemoryWatchdog.swift */; };
 		D62F536E3BA906DFC76E2B19 /* sodium-native.5.0.10.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = BA646E01D65A2691AA2D701C /* sodium-native.5.0.10.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D980D1D0C25AFE9D03F21CC3 /* messages.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F5B61172BA81C1310B1B2D6 /* messages.pb.swift */; };
 		DA3AEDDE2AFF5D59E8BF7D65 /* ReconnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9896E1D1D375E80807DF0E2 /* ReconnectionManager.swift */; };
@@ -217,6 +217,7 @@
 		B528A6A7A26DC03648DE9F06 /* ViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerView.swift; sourceTree = "<group>"; };
 		B5C151A49BDBB8ACBCA8B46F /* InputCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCapture.swift; sourceTree = "<group>"; };
 		B6AE5936EB39AA1C85955572 /* PeariscopeCoreMac.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = PeariscopeCoreMac.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		B9B0DFFFE6267D66CB09592D /* MemoryWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryWatchdog.swift; sourceTree = "<group>"; };
 		B9B68CA974D13C7483E05531 /* ViewerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerSession.swift; sourceTree = "<group>"; };
 		BA646E01D65A2691AA2D701C /* sodium-native.5.0.10.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "sodium-native.5.0.10.xcframework"; path = "Frameworks/sodium-native.5.0.10.xcframework"; sourceTree = "<group>"; };
 		BFE474B86ED331210BFAFAAB /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
@@ -230,7 +231,6 @@
 		EE0F7F91639DECA12F28DAF9 /* bare-structured-clone.1.5.2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-structured-clone.1.5.2.xcframework"; path = "Frameworks/bare-structured-clone.1.5.2.xcframework"; sourceTree = "<group>"; };
 		F197738A7FE2A9B663040728 /* bare-os.3.7.1.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-os.3.7.1.xcframework"; path = "Frameworks/bare-os.3.7.1.xcframework"; sourceTree = "<group>"; };
 		F704CF55F4B6D59D8D3E58DE /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718293A4B5C /* MemoryWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryWatchdog.swift; sourceTree = "<group>"; };
 		F80B03F27952F62AE6C74792 /* H265Decoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H265Decoder.swift; sourceTree = "<group>"; };
 		F8793959EA6047FB4596D592 /* PeariscopeMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PeariscopeMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF0656F6B7950A85657A6E82 /* QRPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRPairing.swift; sourceTree = "<group>"; };
@@ -497,8 +497,8 @@
 				E5CD049405ABD1FB3B485E8E /* Decoder.swift */,
 				2040C55CAA5BDEC6F5254620 /* FramePacer.swift */,
 				F80B03F27952F62AE6C74792 /* H265Decoder.swift */,
-				A1B2C3D4E5F60718293A4B5C /* MemoryWatchdog.swift */,
 				D7E47FE932E6FA6BFD4EE21F /* LatencyTracker.swift */,
+				B9B0DFFFE6267D66CB09592D /* MemoryWatchdog.swift */,
 				93976E5C8B088344D6F8DE72 /* Renderer.swift */,
 			);
 			path = Video;
@@ -680,7 +680,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for macOS\ncd \"$PEAR_SRC\"\nPATH=\"/Users/bcap/.bun/bin:/Users/bcap/.local/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/opt/homebrew/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/Users/bcap/Library/Application Support/pear/bin:/Users/bcap/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet.bundle\" ]; then\n  npx bare-pack --preset darwin --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1 || true\nfi\ncp \"$PEAR_SRC/worklet.bundle\" \"$PEAR_DEST/\" 2>/dev/null || true\n\n# Copy macOS native addon frameworks\nif [ -d \"$PEAR_SRC/addons-darwin\" ]; then\n  for fw in \"$PEAR_SRC/addons-darwin\"/*.framework; do\n    if [ -d \"$fw\" ]; then\n      cp -R \"$fw\" \"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Frameworks/\"\n    fi\n  done\nfi\n\n# Also copy legacy files for Node.js fallback\ncp \"$PEAR_SRC/index.js\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp \"$PEAR_SRC/package.json\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp -R \"$PEAR_SRC/lib\" \"$PEAR_DEST/lib\" 2>/dev/null || true\nif [ -d \"$PEAR_SRC/node_modules\" ]; then\n  cp -R \"$PEAR_SRC/node_modules\" \"$PEAR_DEST/node_modules\"\nfi\nPROTO_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/protocol\"\nmkdir -p \"$PROTO_DEST\"\ncp \"${SRCROOT}/../protocol/messages.proto\" \"$PROTO_DEST/\"\nNODE_SRC=$(which node)\nNODE_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/node\"\ncp \"$NODE_SRC\" \"$NODE_DEST\" 2>/dev/null || true\nchmod +x \"$NODE_DEST\" 2>/dev/null || true\n";
+			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for macOS\ncd \"$PEAR_SRC\"\nPATH=\"/Users/bcap/.bun/bin:/Users/bcap/.local/bin:/opt/local/bin:/opt/local/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/opt/homebrew/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/Users/bcap/Library/Application Support/pear/bin:/Users/bcap/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:/Users/bcap/.claude/plugins/cache/claude-plugins-official/swift-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/clangd-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/rust-analyzer-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/ralph-marketplace/ralph-skills/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown/bin:/Users/bcap/.claude/plugins/cache/interface-design/interface-design/2026.2.9.1212/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/bin:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet.bundle\" ]; then\n  npx bare-pack --preset darwin --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1\n  if [ $? -ne 0 ]; then echo \"error: bare-pack failed for macOS worklet\" >&2; exit 1; fi\nfi\nif [ ! -f \"$PEAR_SRC/worklet.bundle\" ]; then echo \"error: worklet.bundle not found — run npm install in pear/\" >&2; exit 1; fi\ncp \"$PEAR_SRC/worklet.bundle\" \"$PEAR_DEST/\"\n\n# Copy macOS native addon frameworks\nif [ -d \"$PEAR_SRC/addons-darwin\" ]; then\n  for fw in \"$PEAR_SRC/addons-darwin\"/*.framework; do\n    if [ -d \"$fw\" ]; then\n      cp -R \"$fw\" \"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Frameworks/\"\n    fi\n  done\nfi\n\n# Also copy legacy files for Node.js fallback\ncp \"$PEAR_SRC/index.js\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp \"$PEAR_SRC/package.json\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp -R \"$PEAR_SRC/lib\" \"$PEAR_DEST/lib\" 2>/dev/null || true\nif [ -d \"$PEAR_SRC/node_modules\" ]; then\n  cp -R \"$PEAR_SRC/node_modules\" \"$PEAR_DEST/node_modules\"\nfi\nPROTO_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/protocol\"\nmkdir -p \"$PROTO_DEST\"\ncp \"${SRCROOT}/../protocol/messages.proto\" \"$PROTO_DEST/\"\nNODE_SRC=$(which node)\nNODE_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/node\"\ncp \"$NODE_SRC\" \"$NODE_DEST\" 2>/dev/null || true\nchmod +x \"$NODE_DEST\" 2>/dev/null || true\n";
 		};
 		B5EB8D512AD6C1C8A793C533 /* Bundle Pear Runtime for iOS */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -699,7 +699,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for iOS\ncd \"$PEAR_SRC\"\nPATH=\"/Users/bcap/.bun/bin:/Users/bcap/.local/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/opt/homebrew/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/Users/bcap/Library/Application Support/pear/bin:/Users/bcap/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet-ios.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet-ios.bundle\" ]; then\n  npx bare-pack --preset ios --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1 || true\nfi\ncp \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_DEST/worklet.bundle\" 2>/dev/null || true\n";
+			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for iOS\ncd \"$PEAR_SRC\"\nPATH=\"/Users/bcap/.bun/bin:/Users/bcap/.local/bin:/opt/local/bin:/opt/local/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/opt/homebrew/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/Users/bcap/Library/Application Support/pear/bin:/Users/bcap/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:/Users/bcap/.claude/plugins/cache/claude-plugins-official/swift-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/clangd-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/rust-analyzer-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/ralph-marketplace/ralph-skills/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown/bin:/Users/bcap/.claude/plugins/cache/interface-design/interface-design/2026.2.9.1212/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/bin:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet-ios.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet-ios.bundle\" ]; then\n  npx bare-pack --preset ios --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1\n  if [ $? -ne 0 ]; then echo \"error: bare-pack failed for iOS worklet\" >&2; exit 1; fi\nfi\nif [ ! -f \"$PEAR_SRC/worklet-ios.bundle\" ]; then echo \"error: worklet-ios.bundle not found — run npm install in pear/\" >&2; exit 1; fi\ncp \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_DEST/worklet.bundle\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -754,12 +754,12 @@
 				4616ED27C00FEF001B77A332 /* Decoder.swift in Sources */,
 				0ABDCEC018C1F7B637958765 /* FramePacer.swift in Sources */,
 				22CDC9F51D7FF620F1C75921 /* H265Decoder.swift in Sources */,
-				22F1A0B3D8E742A1BC5D9E01 /* MemoryWatchdog.swift in Sources */,
 				D1FD37171C292841FE9FCFD4 /* InputProtocol.swift in Sources */,
 				60732CD92FD4037C0B95E11B /* IpcClient.swift in Sources */,
 				E491269E8BE61068A79C9532 /* KeyManager.swift in Sources */,
 				4E50C4C105386FAF0877A4E0 /* LatencyTracker.swift in Sources */,
 				1746E14BDC469676B5EC0D8F /* LocalDiscovery.swift in Sources */,
+				6EB7533984329554379D049C /* MemoryWatchdog.swift in Sources */,
 				8287B4298B70B9404AFE351E /* NetworkManager.swift in Sources */,
 				308A15C33E2882DEA65F25C4 /* PearProcess.swift in Sources */,
 				7073A5BB9FFA5190408F4BD5 /* PeerFingerprint.swift in Sources */,
@@ -784,12 +784,12 @@
 				40B6A33FA43604948141A852 /* Decoder.swift in Sources */,
 				9C25379D57DC46F3B7644A75 /* FramePacer.swift in Sources */,
 				2C0A65932699F3ED8A9DE056 /* H265Decoder.swift in Sources */,
-				2C1F5A83B7D9E4F60A1B2C3D /* MemoryWatchdog.swift in Sources */,
 				B47B62390B4D8E06B685BAAC /* InputProtocol.swift in Sources */,
 				036299F2C96821547627BD58 /* IpcClient.swift in Sources */,
 				2352BA077F86414EBD876708 /* KeyManager.swift in Sources */,
 				35FBE8F3E33D212715C122E7 /* LatencyTracker.swift in Sources */,
 				F3D0D67BB722E31784724991 /* LocalDiscovery.swift in Sources */,
+				D3D803BB5CD0CCF08D1B452C /* MemoryWatchdog.swift in Sources */,
 				0CB5FF235D9D6C15760100BE /* NetworkManager.swift in Sources */,
 				EF474BA9BE92736F96C74054 /* PearProcess.swift in Sources */,
 				67DBBFA6A9438848CA3DD181 /* PeerFingerprint.swift in Sources */,

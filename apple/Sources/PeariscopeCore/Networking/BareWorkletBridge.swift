@@ -927,7 +927,6 @@ public final class BareWorkletBridge: @unchecked Sendable {
         case .log:
             if let json = parseJSON(rest) {
                 let msg = json["message"] as? String ?? ""
-                NSLog("[bare-js] %@", msg)
                 onLog?(msg)
             }
 

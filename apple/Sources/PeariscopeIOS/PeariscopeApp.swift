@@ -132,6 +132,10 @@ class PeariscopeAppDelegate: NSObject, UIApplicationDelegate {
         // Set up persistent crash log FIRST
         CrashLog.setup()
 
+        if CrashLog.previousSessionCrashed {
+            CrashLog.write("Previous session terminated by system (peak_mem: \(CrashLog.previousSessionPeakMem)MB)")
+        }
+
         // Check if there's a previous crash log
         if let prev = CrashLog.readPrevious(), prev.contains("MEMORY WARNING") || prev.contains("CRASH") {
             NSLog("[app] Previous session log:\n%@", prev)
@@ -210,6 +214,7 @@ struct PeariscopeIOSApp: App {
                 // so NAT mappings persist and subsequent connections are fast.
                 // The worklet uses minimal CPU/memory when idle (just DHT keepalive).
                 // Only suspend if memory is critically low (handled by memory pressure handlers).
+                CrashLog.write("App entering background")
                 CrashLog.write("App backgrounded — keeping DHT alive for warmth")
             default:
                 break
