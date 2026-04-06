@@ -11,7 +11,7 @@ struct SettingsView: View {
     @State private var maxViewers: Int = UserDefaults.standard.integer(forKey: "peariscope.maxViewers").clamped(to: 1...20, default: 5)
     @State private var requirePin: Bool = UserDefaults.standard.object(forKey: "peariscope.requirePin") as? Bool ?? true
     @State private var skipPinOnReconnect: Bool = UserDefaults.standard.bool(forKey: "peariscope.skipPinOnReconnect")
-    @State private var pinCode: String = UserDefaults.standard.string(forKey: "peariscope.pinCode") ?? ""
+    @State private var pinCode: String = HostSession.loadPinFromKeychain()
     @State private var newCodeEachSession: Bool = UserDefaults.standard.bool(forKey: "peariscope.newCodeEachSession")
     @State private var adaptiveResolution: Bool = UserDefaults.standard.object(forKey: "peariscope.adaptiveResolution") as? Bool ?? true
     @State private var startSharingOnStartup: Bool = UserDefaults.standard.bool(forKey: "peariscope.startSharingOnStartup")

@@ -4,6 +4,7 @@ import CoreMedia
 import PeariscopeCore
 import os.log
 import AVFoundation
+import Security
 
 /// Orchestrates the host-side pipeline: capture -> encode -> network, network -> input injection
 /// Supports adaptive quality and H.264/H.265 codec switching.
@@ -30,11 +31,13 @@ public final class HostSession: ObservableObject {
     private var peerLockoutUntil: [String: Date] = [:]
     private let maxPinAttempts = 5
     private let lockoutDuration: TimeInterval = 300
+    private var globalFailedPinAttempts = 0
+    private var globalLockoutUntil: Date?
     @Published public var requirePinVerification: Bool {
         didSet { UserDefaults.standard.set(requirePinVerification, forKey: "peariscope.requirePin") }
     }
     @Published public var pinCode: String {
-        didSet { UserDefaults.standard.set(pinCode, forKey: "peariscope.pinCode") }
+        didSet { Self.savePinToKeychain(pinCode) }
     }
     @Published public var maxViewers: Int {
         didSet { UserDefaults.standard.set(maxViewers, forKey: "peariscope.maxViewers") }
@@ -104,7 +107,7 @@ public final class HostSession: ObservableObject {
         self.hasAccessibilityPermission = InputInjector.hasAccessibilityPermission
         self.useH265 = H265Encoder.isSupported
         self.requirePinVerification = UserDefaults.standard.object(forKey: "peariscope.requirePin") as? Bool ?? true
-        self.pinCode = UserDefaults.standard.string(forKey: "peariscope.pinCode") ?? ""
+        self.pinCode = Self.loadPinFromKeychain()
         let savedMaxViewers = UserDefaults.standard.integer(forKey: "peariscope.maxViewers")
         self.maxViewers = savedMaxViewers > 0 ? savedMaxViewers : 5
         // Default to enabled; user can disable if it causes issues
@@ -224,7 +227,7 @@ public final class HostSession: ObservableObject {
                 return
             }
 
-            HostSession.log("[host] PIN check: requirePin=\(self.requirePinVerification) pinCode='\(self.pinCode)' len=\(self.pinCode.count)")
+            HostSession.log("[host] PIN check: requirePin=\(self.requirePinVerification) pinLen=\(self.pinCode.count)")
             if self.requirePinVerification && self.pinCode.count >= 6 {
                 // Block this peer from receiving video/input/control/audio until PIN verified
                 self.pendingPeerIds.insert(peer.id)
@@ -615,7 +618,7 @@ public final class HostSession: ObservableObject {
             return
         }
         let peerIdHex = peerKey.map { String(format: "%02x", $0) }.joined()
-        HostSession.log("[host] Peer \(accepted ? "approved" : "rejected") with PIN \(pin), peerIdHex=\(peerIdHex.prefix(16))")
+        HostSession.log("[host] Peer \(accepted ? "approved" : "rejected") pinLen=\(pin.count), peerIdHex=\(peerIdHex.prefix(16))")
         pendingPeerPin = nil
         pendingPeerKey = nil
         pendingPeerFingerprint = nil
@@ -946,7 +949,7 @@ public final class HostSession: ObservableObject {
                 switchCodec(toH265: false)
             }
         case .peerChallengeResponse(let response):
-            HostSession.log("[host] Received PIN response: accepted=\(response.accepted) pin='\(response.pin)' pendingPin='\(pendingPeerPin ?? "nil")' hasPeerKey=\(pendingPeerKey != nil) pendingPeerIds=\(pendingPeerIds.count) connectedPeers=\(networkManager.connectedPeers.count)")
+            HostSession.log("[host] Received PIN response: pinMatch=\(response.pin == pendingPeerPin) hasPeerKey=\(pendingPeerKey != nil) pendingPeerIds=\(pendingPeerIds.count) connectedPeers=\(networkManager.connectedPeers.count)")
             guard let peerKey = pendingPeerKey else {
                 HostSession.log("[host] PIN response but no pending peer key — was it already cleared?")
                 return
@@ -954,7 +957,24 @@ public final class HostSession: ObservableObject {
             let peerIdHex = peerKey.map { String(format: "%02x", $0) }.joined()
             let peerFP = PeerFingerprint.format(peerIdHex)
 
-            // Check lockout
+            // Check global lockout
+            if let globalLockout = globalLockoutUntil, globalLockout > Date() {
+                let remainingSec = Int(globalLockout.timeIntervalSinceNow)
+                HostSession.log("[host] Global lockout active for \(remainingSec)s more, rejecting \(peerFP)")
+                var rejectResponse = Peariscope_PeerChallengeResponse()
+                rejectResponse.pin = response.pin
+                rejectResponse.accepted = false
+                var rejectControl = Peariscope_ControlMessage()
+                rejectControl.peerChallengeResponse = rejectResponse
+                if let data = try? rejectControl.serializedData(),
+                   let peer = networkManager.connectedPeers.first(where: { $0.id == peerIdHex }) {
+                    try? networkManager.sendControlData(data, streamId: peer.streamId)
+                }
+                respondToPeer(accepted: false)
+                return
+            }
+
+            // Check per-peer lockout
             if let lockoutDate = peerLockoutUntil[peerIdHex], lockoutDate > Date() {
                 let remainingSec = Int(lockoutDate.timeIntervalSinceNow)
                 HostSession.log("[host] Peer \(peerFP) is locked out for \(remainingSec)s more, rejecting")
@@ -971,8 +991,8 @@ public final class HostSession: ObservableObject {
                 return
             }
 
-            HostSession.log("[host] PIN check: response.pin='\(response.pin)' pendingPeerPin='\(pendingPeerPin ?? "nil")' match=\(response.pin == pendingPeerPin) accepted=\(response.accepted)")
-            if response.accepted && response.pin == pendingPeerPin {
+            HostSession.log("[host] PIN check: pinMatch=\(response.pin == pendingPeerPin)")
+            if response.pin == pendingPeerPin {
                 HostSession.log("[host] PIN verified for \(peerFP)")
                 failedPinAttempts.removeValue(forKey: peerIdHex)
                 peerLockoutUntil.removeValue(forKey: peerIdHex)
@@ -980,6 +1000,11 @@ public final class HostSession: ObservableObject {
             } else {
                 let attempts = (failedPinAttempts[peerIdHex] ?? 0) + 1
                 failedPinAttempts[peerIdHex] = attempts
+                globalFailedPinAttempts += 1
+                if globalFailedPinAttempts >= maxPinAttempts * 3 {
+                    globalLockoutUntil = Date().addingTimeInterval(lockoutDuration * 2)
+                    HostSession.log("[host] Global lockout triggered after \(globalFailedPinAttempts) total failed attempts")
+                }
 
                 if attempts >= maxPinAttempts {
                     peerLockoutUntil[peerIdHex] = Date().addingTimeInterval(lockoutDuration)
@@ -1067,10 +1092,51 @@ public final class HostSession: ObservableObject {
 }
 
 extension HostSession {
+    // MARK: - PIN Keychain Helpers
+
+    private static func savePinToKeychain(_ pin: String) {
+        let service = "com.peariscope.keys"
+        let account = "pin-code"
+        let data = Data(pin.utf8)
+
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data,
+        ]
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
+    static func loadPinFromKeychain() -> String {
+        let service = "com.peariscope.keys"
+        let account = "pin-code"
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data,
+              let pin = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return pin
+    }
+
     private static let logFile: FileHandle? = {
-        // Also write to /tmp/peariscope-host.log for debugging
-        let path = "/tmp/peariscope-host.log"
-        FileManager.default.createFile(atPath: path, contents: nil)
+        let path = NSTemporaryDirectory() + "peariscope-host.log"
+        FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
         return FileHandle(forWritingAtPath: path)
     }()
 

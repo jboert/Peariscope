@@ -386,6 +386,7 @@ class PeariscopeWorklet {
     this._cachedKeyPair = null
     this._dhtNodeReportInterval = null
     this._warmupInterval = null
+    this._nextStreamId = 1
   }
 
   setCachedKeyPair (publicKeyHex, secretKeyHex) {
@@ -890,7 +891,7 @@ class PeariscopeWorklet {
     sendLog('Peer connected: ' + keyHex.slice(0, 16) + '...')
 
     const mux = new StreamMux(stream)
-    const streamId = this.peers.size + 1
+    const streamId = this._nextStreamId++
 
     this.peers.set(keyHex, { stream, mux, info, streamId })
 
@@ -964,6 +965,10 @@ class PeariscopeWorklet {
 
     mux.onChannel(2, (data) => {
       sendFrame(MSG.STREAM_DATA_OUT, { streamId, channel: 2 }, data)
+    })
+
+    mux.onChannel(3, (data) => {
+      sendFrame(MSG.STREAM_DATA_OUT, { streamId, channel: 3 }, data)
     })
 
     stream.on('close', () => {
@@ -1278,23 +1283,35 @@ function handleFrame (frame) {
       break
 
     case MSG.CONNECT_TO_PEER: {
-      const json = JSON.parse(rest.toString())
-      worklet.connectToPeer(json.code)
+      try {
+        const json = JSON.parse(rest.toString())
+        worklet.connectToPeer(json.code)
+      } catch (e) {
+        sendLog('CONNECT_TO_PEER: JSON parse error: ' + (e.message || e))
+      }
       break
     }
 
     case MSG.CONNECT_LOCAL_PEER: {
-      const json = JSON.parse(rest.toString())
-      worklet.connectLocalPeer(json.code, json.host, json.port)
+      try {
+        const json = JSON.parse(rest.toString())
+        worklet.connectLocalPeer(json.code, json.host, json.port)
+      } catch (e) {
+        sendLog('CONNECT_LOCAL_PEER: JSON parse error: ' + (e.message || e))
+      }
       break
     }
 
     case MSG.DISCONNECT: {
-      const json = JSON.parse(rest.toString())
-      if (json.peerKeyHex === '*') {
-        worklet.disconnectAllPeers()
-      } else {
-        worklet.disconnectPeer(json.peerKeyHex)
+      try {
+        const json = JSON.parse(rest.toString())
+        if (json.peerKeyHex === '*') {
+          worklet.disconnectAllPeers()
+        } else {
+          worklet.disconnectPeer(json.peerKeyHex)
+        }
+      } catch (e) {
+        sendLog('DISCONNECT: JSON parse error: ' + (e.message || e))
       }
       break
     }
@@ -1353,8 +1370,12 @@ function handleFrame (frame) {
       break
 
     case MSG.LOOKUP_PEER: {
-      const json = JSON.parse(rest.toString())
-      worklet.lookupPeer(json.code).catch((e) => sendLog('lookupPeer error: ' + e.message))
+      try {
+        const json = JSON.parse(rest.toString())
+        worklet.lookupPeer(json.code).catch((e) => sendLog('lookupPeer error: ' + e.message))
+      } catch (e) {
+        sendLog('LOOKUP_PEER: JSON parse error: ' + (e.message || e))
+      }
       break
     }
 

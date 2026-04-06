@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -294,26 +295,8 @@ public final class NetworkManager: ObservableObject {
             self?.onLookupResult?(code, online)
         }
 
-        bareBridge.onOtaUpdate = { [weak self] version, bundleData in
-            Task { @MainActor in
-                guard let self else { return }
-                self.debugLog("[ota] Received update v\(version), \(bundleData.count) bytes")
-                self.otaStatus = .downloading
-
-                let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                let bundleURL = docsDir.appendingPathComponent("worklet-ota.bundle")
-                let versionURL = docsDir.appendingPathComponent("worklet-ota.version")
-
-                do {
-                    try bundleData.write(to: bundleURL)
-                    try version.write(to: versionURL, atomically: true, encoding: .utf8)
-                    self.debugLog("[ota] Saved OTA bundle to \(bundleURL.path)")
-                    self.otaStatus = .ready(version: version)
-                } catch {
-                    self.debugLog("[ota] Failed to save OTA bundle: \(error)")
-                    self.otaStatus = .failed(error.localizedDescription)
-                }
-            }
+        bareBridge.onOtaUpdate = { [weak self] version, _ in
+            self?.debugLog("[ota] OTA updates disabled for security — ignoring v\(version)")
         }
 
         // Reconnection handler
@@ -491,8 +474,8 @@ public final class NetworkManager: ObservableObject {
 
     /// Start the Pear runtime. Tries BareKit first, falls back to Node.js on macOS.
     private static let logFile: FileHandle? = {
-        let path = "/tmp/peariscope-debug.log"
-        FileManager.default.createFile(atPath: path, contents: nil)
+        let path = NSTemporaryDirectory() + "peariscope-debug.log"
+        FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
         return FileHandle(forWritingAtPath: path)
     }()
 
@@ -505,6 +488,29 @@ public final class NetworkManager: ObservableObject {
             Self.logFile?.seekToEndOfFile()
             Self.logFile?.write(data)
         }
+    }
+
+    // MARK: - DHT Keypair Keychain
+
+    /// Load DHT keypair from Keychain.
+    static func loadDhtKeypairFromKeychain() -> (publicKey: String, secretKey: String)? {
+        let service = "com.peariscope.dht"
+        let account = "dht-keypair"
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+              let pub = json["publicKey"], let sec = json["secretKey"] else {
+            return nil
+        }
+        return (publicKey: pub, secretKey: sec)
     }
 
     // MARK: - DHT Node Cache
@@ -644,11 +650,10 @@ public final class NetworkManager: ObservableObject {
                 // and identity persistence (same keypair = same NAT mappings on CGNAT)
                 let freshNodes = Self.loadCachedDhtNodes()
                 let cachedKeypair: (publicKey: String, secretKey: String)?
-                if let pubKey = UserDefaults.standard.string(forKey: "peariscope.dhtPublicKey"),
-                   let secKey = UserDefaults.standard.string(forKey: "peariscope.dhtSecretKey"),
-                   pubKey.count == 64 && secKey.count == 128 {
-                    cachedKeypair = (publicKey: pubKey, secretKey: secKey)
-                    debugLog("[net] Sending cached keypair: \(pubKey.prefix(16))...")
+                if let kp = Self.loadDhtKeypairFromKeychain(),
+                   kp.publicKey.count == 64 && kp.secretKey.count == 128 {
+                    cachedKeypair = (publicKey: kp.publicKey, secretKey: kp.secretKey)
+                    debugLog("[net] Sending cached keypair: \(kp.publicKey.prefix(16))...")
                 } else {
                     cachedKeypair = nil
                 }
