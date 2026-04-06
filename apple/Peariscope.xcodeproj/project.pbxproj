@@ -113,6 +113,8 @@
 		F3D0D67BB722E31784724991 /* LocalDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E9C373CCF74F1C06F913F8 /* LocalDiscovery.swift */; };
 		F734536F41C8703A05255E0C /* BareKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F89CE932926D6B926A62BB75 /* CrashLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD4F4603D0FA530227C7D335 /* CrashLog.swift */; };
+		FA1B2C3D4E5F6A7B8C9D0E1F /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1C2D3E4F5A6B7C8D9E0F12 /* ThemeManager.swift */; };
+		FA2B3C4D5E6F7A8B9C0D1E2F /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1C2D3E4F5A6B7C8D9E0F12 /* ThemeManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -211,6 +213,7 @@
 		9C90E01D0473ED1593575617 /* bare-module-lexer.1.4.7.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-module-lexer.1.4.7.xcframework"; path = "Frameworks/bare-module-lexer.1.4.7.xcframework"; sourceTree = "<group>"; };
 		9FC25272D55368BE1A21BDAF /* HostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostView.swift; sourceTree = "<group>"; };
 		A9896E1D1D375E80807DF0E2 /* ReconnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectionManager.swift; sourceTree = "<group>"; };
+		AB1C2D3E4F5A6B7C8D9E0F12 /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		AB8484063415C97601A39E51 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AD4F4603D0FA530227C7D335 /* CrashLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLog.swift; sourceTree = "<group>"; };
 		B3A90468AA3EE4B4D0FDE921 /* bare-fs.4.5.5.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-fs.4.5.5.xcframework"; path = "Frameworks/bare-fs.4.5.5.xcframework"; sourceTree = "<group>"; };
@@ -345,6 +348,7 @@
 			isa = PBXGroup;
 			children = (
 				52F32FAB94F8D1A3E6B6D985 /* BIP39Wordlist.swift */,
+				AB1C2D3E4F5A6B7C8D9E0F12 /* ThemeManager.swift */,
 				7A751862589981DC7F9B6A3A /* Audio */,
 				B6DC569AFEE4D4454821DEF2 /* Auth */,
 				00D546A202B59A851ED9613B /* Clipboard */,
@@ -749,6 +753,7 @@
 				430659B45A2F0C43296A624A /* AudioEncoder.swift in Sources */,
 				090632F0A249A16F4108C464 /* AudioPlayer.swift in Sources */,
 				5F747F765F5E37A558553F67 /* BIP39Wordlist.swift in Sources */,
+				FA1B2C3D4E5F6A7B8C9D0E1F /* ThemeManager.swift in Sources */,
 				3441D25C16305A89FC8547AE /* BareWorkletBridge.swift in Sources */,
 				A66B683067EF59C059D1E25B /* ClipboardSharing.swift in Sources */,
 				4616ED27C00FEF001B77A332 /* Decoder.swift in Sources */,
@@ -779,6 +784,7 @@
 				F2FDDC107E75086B6027F949 /* AudioEncoder.swift in Sources */,
 				38A127AD80D7440E7CB00DD8 /* AudioPlayer.swift in Sources */,
 				8D30E3EB75E5BBF05945EF8D /* BIP39Wordlist.swift in Sources */,
+				FA2B3C4D5E6F7A8B9C0D1E2F /* ThemeManager.swift in Sources */,
 				E85CE95D4E560F3FC55DBE06 /* BareWorkletBridge.swift in Sources */,
 				EACABE827D36F74CD68A2C6B /* ClipboardSharing.swift in Sources */,
 				40B6A33FA43604948141A852 /* Decoder.swift in Sources */,

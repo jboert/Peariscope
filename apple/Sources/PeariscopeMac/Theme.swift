@@ -1,20 +1,17 @@
 import SwiftUI
+import PeariscopeCore
 
 // MARK: - Theme
 
 extension Color {
-    static let pearGreen = Color("PearGreen")
-    static let pearGreenDim = Color("PearGreen").opacity(0.12)
-    static let pearGlow = Color("PearGreen").opacity(0.25)
+    @MainActor static var pearGreen: Color { ThemeManager.shared.current.accentColor }
+    @MainActor static var pearGreenDim: Color { ThemeManager.shared.current.accentDim }
+    @MainActor static var pearGlow: Color { ThemeManager.shared.current.accentGlow }
     static let surfaceElevated = Color(.controlBackgroundColor)
 }
 
 extension ShapeStyle where Self == LinearGradient {
-    static var pearGradient: LinearGradient {
-        LinearGradient(
-            colors: [Color.pearGreen, Color.pearGreen.opacity(0.7)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+    @MainActor static var pearGradient: LinearGradient {
+        ThemeManager.shared.current.gradient
     }
 }
