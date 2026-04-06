@@ -25,11 +25,13 @@
 		1746E14BDC469676B5EC0D8F /* LocalDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E9C373CCF74F1C06F913F8 /* LocalDiscovery.swift */; };
 		18132A3FF309F07517CFBDB7 /* bare-structured-clone.1.5.2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE0F7F91639DECA12F28DAF9 /* bare-structured-clone.1.5.2.xcframework */; };
 		22CDC9F51D7FF620F1C75921 /* H265Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80B03F27952F62AE6C74792 /* H265Decoder.swift */; };
+		22F1A0B3D8E742A1BC5D9E01 /* MemoryWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* MemoryWatchdog.swift */; };
 		2352BA077F86414EBD876708 /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CE3DD122B6624C2A2D4C9C /* KeyManager.swift */; };
 		23BCAB013858FD69D5AEDDD8 /* bare-fs.4.5.5.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B3A90468AA3EE4B4D0FDE921 /* bare-fs.4.5.5.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		23DA3993D95FFF6AA3CE43BA /* bare-buffer.3.5.0.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 95E63E3910F8C90020AB3B57 /* bare-buffer.3.5.0.xcframework */; };
 		25C38485932725DB8884EE38 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D745B139C4A1617FA05E6E32 /* Theme.swift */; };
 		2C0A65932699F3ED8A9DE056 /* H265Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80B03F27952F62AE6C74792 /* H265Decoder.swift */; };
+		2C1F5A83B7D9E4F60A1B2C3D /* MemoryWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* MemoryWatchdog.swift */; };
 		308A15C33E2882DEA65F25C4 /* PearProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DC2119397B169ACEE7CFD9 /* PearProcess.swift */; };
 		3441D25C16305A89FC8547AE /* BareWorkletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFCE9803E1F196231F98D08 /* BareWorkletBridge.swift */; };
 		35FBE8F3E33D212715C122E7 /* LatencyTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E47FE932E6FA6BFD4EE21F /* LatencyTracker.swift */; };
@@ -228,6 +230,7 @@
 		EE0F7F91639DECA12F28DAF9 /* bare-structured-clone.1.5.2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-structured-clone.1.5.2.xcframework"; path = "Frameworks/bare-structured-clone.1.5.2.xcframework"; sourceTree = "<group>"; };
 		F197738A7FE2A9B663040728 /* bare-os.3.7.1.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-os.3.7.1.xcframework"; path = "Frameworks/bare-os.3.7.1.xcframework"; sourceTree = "<group>"; };
 		F704CF55F4B6D59D8D3E58DE /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5C /* MemoryWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryWatchdog.swift; sourceTree = "<group>"; };
 		F80B03F27952F62AE6C74792 /* H265Decoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H265Decoder.swift; sourceTree = "<group>"; };
 		F8793959EA6047FB4596D592 /* PeariscopeMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PeariscopeMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF0656F6B7950A85657A6E82 /* QRPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRPairing.swift; sourceTree = "<group>"; };
@@ -494,6 +497,7 @@
 				E5CD049405ABD1FB3B485E8E /* Decoder.swift */,
 				2040C55CAA5BDEC6F5254620 /* FramePacer.swift */,
 				F80B03F27952F62AE6C74792 /* H265Decoder.swift */,
+				A1B2C3D4E5F60718293A4B5C /* MemoryWatchdog.swift */,
 				D7E47FE932E6FA6BFD4EE21F /* LatencyTracker.swift */,
 				93976E5C8B088344D6F8DE72 /* Renderer.swift */,
 			);
@@ -750,6 +754,7 @@
 				4616ED27C00FEF001B77A332 /* Decoder.swift in Sources */,
 				0ABDCEC018C1F7B637958765 /* FramePacer.swift in Sources */,
 				22CDC9F51D7FF620F1C75921 /* H265Decoder.swift in Sources */,
+				22F1A0B3D8E742A1BC5D9E01 /* MemoryWatchdog.swift in Sources */,
 				D1FD37171C292841FE9FCFD4 /* InputProtocol.swift in Sources */,
 				60732CD92FD4037C0B95E11B /* IpcClient.swift in Sources */,
 				E491269E8BE61068A79C9532 /* KeyManager.swift in Sources */,
@@ -779,6 +784,7 @@
 				40B6A33FA43604948141A852 /* Decoder.swift in Sources */,
 				9C25379D57DC46F3B7644A75 /* FramePacer.swift in Sources */,
 				2C0A65932699F3ED8A9DE056 /* H265Decoder.swift in Sources */,
+				2C1F5A83B7D9E4F60A1B2C3D /* MemoryWatchdog.swift in Sources */,
 				B47B62390B4D8E06B685BAAC /* InputProtocol.swift in Sources */,
 				036299F2C96821547627BD58 /* IpcClient.swift in Sources */,
 				2352BA077F86414EBD876708 /* KeyManager.swift in Sources */,

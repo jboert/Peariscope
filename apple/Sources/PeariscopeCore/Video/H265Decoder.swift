@@ -20,6 +20,14 @@ public final class H265Decoder: @unchecked Sendable {
     private var sps: Data?
     private var pps: Data?
 
+    /// Flush all queued decode blocks without destroying the session.
+    public func flushQueue() {
+        pendingLock.lock()
+        queuedBlocks = 0
+        pendingLock.unlock()
+        NSLog("[h265] Frame queue flushed")
+    }
+
     /// Force-recreate the VT session. Called when the viewer detects prolonged freeze.
     public func resetSession() {
         queue.async { [weak self] in
@@ -231,7 +239,7 @@ public final class H265Decoder: @unchecked Sendable {
             NSLog("[h265] Failed to create decompression session: %d", status)
             consecutiveDecodeErrors += 1
             totalDecodeErrors += 1
-            if consecutiveDecodeErrors >= 10 && !fallbackRequested {
+            if consecutiveDecodeErrors >= 5 && !fallbackRequested {
                 fallbackRequested = true
                 NSLog("[h265] Session creation failing, requesting codec fallback")
                 onCodecFallbackNeeded?()
@@ -320,10 +328,16 @@ public final class H265Decoder: @unchecked Sendable {
                         let consecutive = self?.consecutiveDecodeErrors ?? 0
                         let total = self?.totalDecodeErrors ?? 0
                         NSLog("[h265-diag] VT decode error: %d (consecutive=%d total=%d)", status, consecutive, total)
-                        if consecutive >= 10, self?.fallbackRequested == false {
+                        if consecutive >= 5, self?.fallbackRequested == false {
                             self?.fallbackRequested = true
-                            NSLog("[h265] Consecutive decode errors >= 10, requesting codec fallback")
+                            NSLog("[h265] Consecutive decode errors >= 5, requesting codec fallback")
                             self?.onCodecFallbackNeeded?()
+                        }
+                        let badDataErr: OSStatus = -12909  // kVTVideoDecoderBadDataErr
+                        let sessionInvalid: OSStatus = -12903  // kVTInvalidSessionErr
+                        if status == badDataErr || status == sessionInvalid {
+                            NSLog("[h265] Unrecoverable VT error %d — recreating session", status)
+                            self?.recreateSession()
                         }
                     }
                     return
