@@ -587,6 +587,7 @@ struct IOSConnectView: View {
     private func connectToLocalHost(_ host: DiscoveredHost) {
         let code = host.code.trimmingCharacters(in: .whitespaces)
         guard !code.isEmpty else { return }
+        UserDefaults.standard.set(code, forKey: "peariscope.lastViewerCode")
         SavedHost.save(code: code)
         savedHosts = SavedHost.loadAll()
         probeTask?.cancel()
@@ -607,6 +608,7 @@ struct IOSConnectView: View {
                     }
                 }
                 // Fallback: regular DHT connect
+                CrashLog.write("[connect] LAN fast-connect unavailable, using DHT connect")
                 try await networkManager.connectFromQR(code)
             } catch {
                 CrashLog.write("[connect] connectToLocalHost error: \(error)")
@@ -618,6 +620,7 @@ struct IOSConnectView: View {
     private func connectToHost(code: String) {
         let trimmed = code.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        UserDefaults.standard.set(trimmed, forKey: "peariscope.lastViewerCode")
         SavedHost.save(code: trimmed)
         savedHosts = SavedHost.loadAll()
         // Cancel background host probes — they compete with the real connection

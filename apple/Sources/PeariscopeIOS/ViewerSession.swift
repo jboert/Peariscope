@@ -175,19 +175,17 @@ final class IOSViewerSession: ObservableObject {
 
         networkManager.onPeerConnected = { [weak self] peer in
             DispatchQueue.main.async { [weak self] in
+                if let code = UserDefaults.standard.string(forKey: "peariscope.lastViewerCode"), !code.isEmpty {
+                    self?.lastCode = code
+                }
                 self?.addDiag("PEER CONNECTED: sid=\(peer.streamId)")
             }
         }
 
         networkManager.onPeerDisconnected = { [weak self] peer in
             guard let self else { return }
-            Task { @MainActor in
-                // ReconnectionManager drives reconnect state via its published state.
-                // Only fall back to local attemptReconnect if manager is idle
-                // (e.g. user-initiated disconnect won't trigger manager).
-                if self.networkManager.reconnectionManager.state == .idle {
-                    self.attemptReconnect()
-                }
+            DispatchQueue.main.async { [weak self] in
+                self?.addDiag("PEER DISCONNECTED: sid=\(peer.streamId)")
             }
         }
 
@@ -630,6 +628,7 @@ final class IOSViewerSession: ObservableObject {
 
     private func attemptReconnect() {
         guard let code = lastCode, !isReconnecting else { return }
+        guard networkManager.reconnectionManager.state == .idle else { return }
         // Only reconnect if we were actively viewing and peers dropped to 0
         guard networkManager.connectedPeers.isEmpty, isActive else { return }
         isReconnecting = true
