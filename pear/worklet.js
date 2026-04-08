@@ -472,10 +472,12 @@ class PeariscopeWorklet {
       })
     }
 
-    // Build DHT with ephemeral:false to be immediately persistent.
     const dhtOpts = {
       ephemeral: false,
       port: 49800 + Math.floor(Math.random() * 1000),
+      // Default randomPunchInterval is 20s with limit 1 — far too conservative for CGNAT.
+      // Random punching is critical for symmetric NAT: the holepuncher tries random ports
+      // on the remote side to find the NAT mapping. More frequent = faster connection.
       randomPunchInterval: 2000
     }
 
@@ -531,40 +533,38 @@ class PeariscopeWorklet {
 
     // relayThrough: when direct holepunch fails (symmetric NAT/CGNAT),
     // Hyperswarm relays traffic through a DHT node. Without this, connections
-    // between two symmetric NAT peers silently fail. Keet uses relays.
-    // Must return a public key (Buffer) of a node to relay through, or null.
+    // between two symmetric NAT peers silently hang after peer discovery.
     swarmOpts.relayThrough = (force) => {
       if (!this.swarm || !this.swarm.dht) return null
-      // Only relay when forced (symmetric NAT detected) or when DHT says we're randomized
       if (!force && !this.swarm.dht.randomized) return null
-      const nodes = this.swarm.dht.toArray()
+      // CRITICAL: dht.toArray() strips node.id (returns only {host, port}).
+      // dht.table.toArray() returns full routing table entries with .id (public key Buffer)
+      // which is what relay needs to dht.connect(publicKey) to the relay node.
+      const nodes = this.swarm.dht.table.toArray()
       if (nodes.length === 0) return null
-      // Pick a random node's public key from the routing table as relay
       const node = nodes[Math.floor(Math.random() * nodes.length)]
-      // DHT routing table nodes have an 'id' property which is their public key
+      sendLog('relayThrough: force=' + force + ' picking from ' + nodes.length + ' nodes, id=' + (node.id ? 'yes' : 'MISSING'))
       return node.id || null
     }
 
     this.swarm = new Hyperswarm(swarmOpts)
 
-    // Force DHT to persistent mode immediately.
-    // The constructor's ephemeral:false sets _forcePersistent=true and _stableTicks=0,
-    // which triggers _updateNetworkState() during bootstrap. BUT if the node is
-    // firewalled (common on mobile), the NAT check fails and the node stays ephemeral.
-    // For HOSTING, we need to be persistent so viewers can find us via DHT,
+    // Force DHT to persistent mode — needed so viewers can find us via DHT
     // even behind a firewall (holepunching/relay handles the actual connection).
-    // _stableTicks=0 is already handled by the constructor when ephemeral:false is set.
     dht.ephemeral = false
     dht.io.ephemeral = false
-    // Monkey-patch _randomPunchLimit — hardcoded to 1 in hyperdht 6.29.x, not configurable via opts.
-    // Higher limit allows more concurrent holepunch attempts for faster NAT traversal.
+
+    // Monkey-patch _randomPunchLimit — hardcoded to 1 in hyperdht 6.29.x.
+    // Default limit of 1 means only 1 random punch attempt at a time.
+    // On CGNAT/symmetric NAT, we need many concurrent attempts to guess
+    // the correct port mapping. Keet's sidecar avoids this because its
+    // long-running process has stable NAT mappings; we start fresh each time.
     dht._randomPunchLimit = 20
-    sendLog('DHT: forced persistent, punch limit=20, interval=2000ms')
-    sendLog('relayThrough: enabled (fallback for symmetric NAT)')
+    sendLog('DHT created: port=' + dhtOpts.port + ' punchLimit=20 punchInterval=2000ms')
 
     this.swarm.on('connection', (stream, info) => {
       const type = info.client ? 'client' : 'server'
-      sendLog('Swarm connection: ' + type + ' remoteKey=' + (info.publicKey ? b4a.toString(info.publicKey, 'hex').slice(0, 16) : 'unknown'))
+      sendLog('Swarm connection: ' + type + ' remoteKey=' + (info.publicKey ? b4a.toString(info.publicKey, 'hex').slice(0, 16) : 'unknown') + ' relay=' + (stream.relayType || 'none'))
       this._onPeerConnection(stream, info)
     })
 
@@ -580,6 +580,25 @@ class PeariscopeWorklet {
       sendLog('Swarm BAN: ' + (peerInfo.publicKey ? b4a.toString(peerInfo.publicKey, 'hex').slice(0, 16) : 'unknown') + ' err=' + (err ? err.message : 'none'))
     })
 
+    // Monitor ALL connection attempts from the DHT level — this catches
+    // holepunch failures, relay attempts, and error codes that Hyperswarm swallows.
+    const origConnect = dht.connect.bind(dht)
+    dht.connect = (remotePublicKey, opts) => {
+      const keyHex = remotePublicKey ? b4a.toString(remotePublicKey, 'hex').slice(0, 16) : 'unknown'
+      sendLog('DHT.connect: peer=' + keyHex + ' relayThrough=' + (opts && opts.relayThrough ? 'yes' : 'no') + ' relayAddrs=' + (opts && opts.relayAddresses ? opts.relayAddresses.length : 0))
+      const conn = origConnect(remotePublicKey, opts)
+      conn.on('open', () => {
+        sendLog('DHT.connect OPEN: peer=' + keyHex + ' relay=' + (conn.relayType || 'direct'))
+      })
+      conn.on('error', (err) => {
+        sendLog('DHT.connect ERROR: peer=' + keyHex + ' code=' + (err.code || 'none') + ' msg=' + (err.message || err))
+      })
+      conn.on('close', () => {
+        sendLog('DHT.connect CLOSE: peer=' + keyHex + ' destroyed=' + conn.destroyed)
+      })
+      return conn
+    }
+
     // Inject cached nodes into DHT after construction
     if (this._cachedNodes && this._cachedNodes.length > 0) {
       this._injectCachedNodes(this._cachedNodes)
@@ -587,7 +606,13 @@ class PeariscopeWorklet {
 
     // Wait for DHT to bootstrap before signaling readiness
     await this.swarm.listen()
+
+    // Log detailed NAT/firewall state after bootstrap
+    const addr = dht.remoteAddress()
     sendLog('Hyperswarm listening (DHT bootstrapped)')
+    sendLog('NAT state: firewalled=' + dht.firewalled + ' randomized=' + dht.randomized + ' ephemeral=' + dht.ephemeral)
+    sendLog('Remote address: ' + (addr ? addr.host + ':' + addr.port : 'unknown'))
+    sendLog('DHT port: ' + dht.address().port + ' nodes: ' + dht.toArray().length)
 
     // Start periodic DHT node reporting for native caching
     this._startDhtNodeReporting()
@@ -733,6 +758,12 @@ class PeariscopeWorklet {
       sendLog('Leaving old viewer topic before connecting to new peer')
       this.swarm.leave(this._lastViewerTopic).catch(() => {})
     }
+    // Clean up any pending connection
+    if (this._pendingConnection) {
+      clearTimeout(this._pendingConnection.timeout)
+      clearInterval(this._pendingConnection.statusInterval)
+      this._pendingConnection = null
+    }
     // Disconnect any lingering peers from previous session
     for (const [keyHex, peer] of this.peers) {
       if (!this.isHosting || !this.connectionInfo) {
@@ -742,70 +773,73 @@ class PeariscopeWorklet {
       }
     }
 
-    this._lastViewerTopic = this._deriveTopicFromCode(code)
-    sendConnectionStatus('starting', 'Starting network...')
-    this._connectAttempt(code, 1).catch((err) => {
-      sendLog('connectToPeer error: ' + (err.message || err))
-      sendFrame(MSG.CONNECTION_FAILED, { code, reason: err.message || 'Unknown error' })
-    })
-  }
-
-  async _connectAttempt (code, attempt) {
-    const maxAttempts = 8
-    const timeoutMs = 15000 // 15s per attempt (faster retries)
-
-    // Clean up any previous attempt's discovery handle
-    if (this._pendingConnection) {
-      clearTimeout(this._pendingConnection.timeout)
-      try { await this._pendingConnection.discovery.destroy() } catch (e) {}
-      this._pendingConnection = null
-    }
-
-    sendLog('Connection attempt ' + attempt + '/' + maxAttempts + ' for code: ' + code)
-    if (attempt > 1) {
-      sendConnectionStatus('retry', 'Retrying... (' + attempt + '/' + maxAttempts + ')')
-    }
-
     const topic = this._deriveTopicFromCode(code)
-    const discovery = this.swarm.join(topic, { server: false, client: true })
-
+    this._lastViewerTopic = topic
     this._connectionSucceeded = false
+    sendConnectionStatus('starting', 'Starting network...')
+
+    // Join the topic ONCE and let Hyperswarm handle holepunch + relay internally.
+    // Previous approach: 8 attempts × 15s, each calling swarm.leave() + discovery.destroy().
+    // Problem: leave() destroys peerInfo which has forceRelaying=true after a failed holepunch,
+    // so the relay fallback never triggers. Hyperswarm needs the peerInfo to survive across
+    // its internal retry cycle: holepunch fail → set forceRelaying → retry with relay.
+    const discovery = this.swarm.join(topic, { server: false, client: true })
     sendConnectionStatus('searching', 'Searching for host...')
 
-    // Non-blocking: log when DHT lookup and swarm flush complete
     discovery.flushed().then(() => {
-      sendLog('DHT lookup flushed for code: ' + code + ' (attempt ' + attempt + ')')
+      if (this._connectionSucceeded) return
+      sendLog('DHT lookup flushed for code: ' + code)
       sendConnectionStatus('connecting', 'Connecting to host...')
     }).catch((err) => {
       sendLog('DHT lookup flush error: ' + (err.message || err))
     })
 
     this.swarm.flush().then(() => {
-      sendLog('Swarm flush complete for attempt ' + attempt)
+      if (this._connectionSucceeded) return
+      sendLog('Swarm flush complete (all connection attempts dispatched)')
     }).catch(() => {})
 
-    // Timeout covers the entire process: DHT lookup + holepunch + relay
+    // Periodic status logging so we can see holepunch/relay progress
+    const startTime = Date.now()
+    const statusInterval = setInterval(() => {
+      if (this._connectionSucceeded) {
+        clearInterval(statusInterval)
+        return
+      }
+      const elapsed = Math.round((Date.now() - startTime) / 1000)
+      const swarmInfo = {
+        connections: this.swarm.connections.size,
+        peers: this.swarm.peers.size,
+        connecting: this.swarm.connecting || 0,
+        firewalled: this.swarm.dht ? this.swarm.dht.firewalled : '?',
+        randomized: this.swarm.dht ? this.swarm.dht.randomized : '?'
+      }
+      sendLog('Connection status @' + elapsed + 's: ' + JSON.stringify(swarmInfo))
+      // Update UI with progress
+      if (swarmInfo.connecting > 0) {
+        sendConnectionStatus('connecting', 'Holepunching... (' + elapsed + 's)')
+      }
+    }, 5000)
+
+    // Single overall timeout — long enough for holepunch + relay fallback.
+    // Holepunch can take 10-30s, relay setup adds another 10-20s.
+    const OVERALL_TIMEOUT = 120000 // 2 minutes
     const timeout = setTimeout(() => {
       if (this._connectionSucceeded) return
+      clearInterval(statusInterval)
 
-      // Leave the topic before retrying so we get a fresh lookup
+      sendLog('Connection timed out after ' + (OVERALL_TIMEOUT / 1000) + 's')
       this.swarm.leave(topic).catch(() => {})
       discovery.destroy().catch(() => {})
 
-      if (attempt < maxAttempts) {
-        sendLog('Attempt ' + attempt + ' timed out, retrying...')
-        sendConnectionStatus('timeout', 'Attempt ' + attempt + ' timed out, retrying...')
-        this._connectAttempt(code, attempt + 1)
-      } else {
-        sendFrame(MSG.CONNECTION_FAILED, {
-          code,
-          reason: 'Connection timed out after ' + maxAttempts + ' attempts'
-        })
-        this._pendingConnection = null
-      }
-    }, timeoutMs)
+      sendFrame(MSG.CONNECTION_FAILED, {
+        code,
+        reason: 'Connection timed out after ' + (OVERALL_TIMEOUT / 1000) + 's'
+      })
+      this._pendingConnection = null
+    }, OVERALL_TIMEOUT)
 
-    this._pendingConnection = { code, timeout, discovery }
+    this._pendingConnection = { code, timeout, statusInterval, discovery }
   }
 
   disconnectAllPeers () {
@@ -819,6 +853,7 @@ class PeariscopeWorklet {
     // Cancel pending connection attempts
     if (this._pendingConnection) {
       clearTimeout(this._pendingConnection.timeout)
+      if (this._pendingConnection.statusInterval) clearInterval(this._pendingConnection.statusInterval)
       this._pendingConnection.discovery.destroy().catch(() => {})
       this._pendingConnection = null
     }
@@ -1019,6 +1054,7 @@ class PeariscopeWorklet {
 
     if (this._pendingConnection) {
       clearTimeout(this._pendingConnection.timeout)
+      if (this._pendingConnection.statusInterval) clearInterval(this._pendingConnection.statusInterval)
       this._connectionSucceeded = true
       if (stream.relayType) {
         sendConnectionStatus('relay', 'Connected via relay')

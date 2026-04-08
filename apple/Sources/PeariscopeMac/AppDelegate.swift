@@ -41,9 +41,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             reason: "Maintaining P2P Hyperswarm connections for remote desktop"
         )
 
-        // Update the menu bar icon to show the Peariscope logo with status dot
+        // Observe host status changes (PIN prompts, etc.)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.setupStatusItemIcon()
             self?.observeStatus()
         }
 

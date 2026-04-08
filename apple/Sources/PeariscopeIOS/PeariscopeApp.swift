@@ -356,7 +356,7 @@ struct IOSContentView: View {
     @State private var connectingElapsed: Int = 0
     @State private var connectingStatus: String = "Starting network..."
     @State private var dhtNodeCount: Int = 0
-    @State private var diagExpanded: Bool = true
+    @State private var diagExpanded: Bool = false
 
     private var connectingView: some View {
         VStack(spacing: 0) {
