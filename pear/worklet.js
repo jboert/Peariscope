@@ -160,7 +160,9 @@ function sendFrame (type, jsonPayload, binaryPayload) {
     if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
       sendLog('sendFrame: early drop, writeBuf=' + ipcWriteLen + ' dropped=' + ipcDropCount)
     }
-    _pauseStreams()
+    // Don't pause peer streams — pause() stops the readable side which freezes
+    // ALL incoming data (video + control). Input still works (writable side)
+    // but video dies. Let UDX handle its own flow control instead.
     return
   }
 
@@ -200,7 +202,6 @@ function sendFrame (type, jsonPayload, binaryPayload) {
       if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
         sendLog('ipc-write: dropping entire chunked frame, writeBuf=' + ipcWriteLen + ' frameSize=' + estimatedTotalSize + ' chunks=' + totalChunks + ' dropped=' + ipcDropCount)
       }
-      _pauseStreams()
       return
     }
 
@@ -263,7 +264,6 @@ function _writeIpcFrame (payload, forceWrite) {
       if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
         sendLog('ipc-write: dropping video frame, writeBuf=' + ipcWriteLen + ' dropped=' + ipcDropCount)
       }
-      _pauseStreams()
       return
     }
   }
