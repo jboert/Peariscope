@@ -52,6 +52,9 @@ public final class NetworkManager: ObservableObject {
     }
 
     private var streamDataCount = 0
+    /// Tracks most recent streamId for each peer key so disconnect cleanup can recover
+    /// correct stream IDs even when the disconnect event arrives after peer removal.
+    private var peerStreamIds: [String: UInt32] = [:]
     /// When true, ignore incoming peer connections (user explicitly disconnected)
     private var suppressConnections = false
     /// Tracks whether the most recent disconnect was user-initiated (vs stream drop)
@@ -175,10 +178,12 @@ public final class NetworkManager: ObservableObject {
                     streamId: event.streamId
                 )
                 self.connectedPeers.append(peer)
+                self.peerStreamIds[event.peerKeyHex] = event.streamId
                 self.isConnected = true
                 self.isConnecting = false
                 self.connectionPhase = nil
                 self.connectionPhaseDetail = nil
+                self.reconnectionManager.peerReconnected(peerKey: Data(hex: event.peerKeyHex))
                 NSLog("[net] isConnected=true, isConnecting=false, peers=%d", self.connectedPeers.count)
                 self.onPeerConnected?(peer)
             }
@@ -189,11 +194,12 @@ public final class NetworkManager: ObservableObject {
                 guard let self else { return }
                 let removedPeer = self.connectedPeers.first { $0.id == event.peerKeyHex }
                 self.connectedPeers.removeAll { $0.id == event.peerKeyHex }
+                let knownStreamId = self.peerStreamIds.removeValue(forKey: event.peerKeyHex)
                 self.isConnected = !self.connectedPeers.isEmpty
                 // Always fire onPeerDisconnected — even if peer wasn't in connectedPeers
                 // (e.g., pending peer that disconnected before being approved).
                 // Create a synthetic PeerState if needed so HostSession can clean up.
-                let peer = removedPeer ?? PeerState(id: event.peerKeyHex, name: "", streamId: 0)
+                let peer = removedPeer ?? PeerState(id: event.peerKeyHex, name: "", streamId: knownStreamId ?? 0)
                 self.onPeerDisconnected?(peer)
                 if !self._userInitiatedDisconnect && self.connectedPeers.isEmpty,
                    let code = self.lastConnectionCode {
@@ -787,6 +793,11 @@ public final class NetworkManager: ObservableObject {
     // MARK: - Connecting
 
     public func connect(code: String) async throws {
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isConnecting && lastConnectionCode == normalizedCode {
+            debugLog("[net] connect() ignored duplicate request while already connecting")
+            return
+        }
         _userInitiatedDisconnect = false
         // Clean up any stale state from previous connections before starting new one.
         // This is critical: if the previous peer disconnected on their end, the JS worklet
@@ -800,7 +811,7 @@ public final class NetworkManager: ObservableObject {
         isConnected = false
 
         suppressConnections = false
-        lastConnectionCode = code
+        lastConnectionCode = normalizedCode
         isConnecting = true
         diagWrite("connect() code=\(code.prefix(30))... useBareKit=\(useBareKit) isAlive=\(bareBridge.isAlive)")
         debugLog("[net] connect() called: code=\(code.prefix(30))... useBareKit=\(useBareKit) isAlive=\(bareBridge.isAlive)")
@@ -813,10 +824,10 @@ public final class NetworkManager: ObservableObject {
         }
         if useBareKit {
             debugLog("[net] Sending CONNECT_TO_PEER to worklet")
-            bareBridge.connectToPeer(code: code)
+            bareBridge.connectToPeer(code: normalizedCode)
         } else {
             var connectMsg = Peariscope_ConnectToPeer()
-            connectMsg.connectionCode = code
+            connectMsg.connectionCode = normalizedCode
             _ = try await ipcClient.request { msg in
                 msg.connectToPeer = connectMsg
             }
@@ -825,7 +836,12 @@ public final class NetworkManager: ObservableObject {
 
     /// Connect to a LAN-discovered peer by injecting its local address into the DHT.
     /// Falls back to regular DHT-based connect if host/port are unavailable.
-    public func connectLocal(code: String, hostIP: String, dhtPort: UInt16) async throws {
+    public func connectLocal(code: String, hostIP: String, dhtPort: UInt16, publicKeyHex: String? = nil) async throws {
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isConnecting && lastConnectionCode == normalizedCode {
+            debugLog("[net] connectLocal() ignored duplicate request while already connecting")
+            return
+        }
         _userInitiatedDisconnect = false
         reconnectionManager.cancelAll()
         if useBareKit && bareBridge.isAlive {
@@ -835,19 +851,41 @@ public final class NetworkManager: ObservableObject {
         isConnected = false
 
         suppressConnections = false
-        lastConnectionCode = code
+        lastConnectionCode = normalizedCode
         isConnecting = true
-        debugLog("[net] connectLocal() called: code=\(code.prefix(30))... host=\(hostIP):\(dhtPort)")
+        debugLog("[net] connectLocal() called: code=\(normalizedCode.prefix(30))... host=\(hostIP):\(dhtPort)")
         if !useBareKit || !bareBridge.isAlive {
             debugLog("[net] Starting/restarting runtime before local connect")
             try await startRuntime()
         }
         if useBareKit {
-            bareBridge.connectLocalPeer(code: code, host: hostIP, port: dhtPort)
+            bareBridge.connectLocalPeer(code: normalizedCode, host: hostIP, port: dhtPort, publicKeyHex: publicKeyHex)
         } else {
             // Legacy path doesn't support local connect — fall through to DHT
-            try await connect(code: code)
+            try await connect(code: normalizedCode)
         }
+    }
+
+    /// Managed reconnect loop for viewer-side recovery paths (stale stream, memory pressure).
+    /// Centralizes reconnect behavior to avoid multiple competing reconnect loops.
+    @discardableResult
+    public func reconnect(code: String, maxAttempts: Int = 5) async -> Bool {
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCode.isEmpty else { return false }
+        lastConnectionCode = normalizedCode
+        for attempt in 1...max(1, maxAttempts) {
+            try? await Task.sleep(for: .seconds(Double(attempt) * 2))
+            do {
+                try await connect(code: normalizedCode)
+                try? await Task.sleep(for: .seconds(2))
+                if !connectedPeers.isEmpty {
+                    return true
+                }
+            } catch {
+                debugLog("[net] managed reconnect attempt \(attempt) failed: \(error.localizedDescription)")
+            }
+        }
+        return false
     }
 
     /// Connect via TCP relay (legacy, for when BareKit isn't available)
@@ -955,6 +993,8 @@ public final class NetworkManager: ObservableObject {
             bareBridge.disconnectAllPeers()
         }
         connectedPeers.removeAll()
+        peerStreamIds.removeAll()
+        blockedStreamIds.removeAll()
         isConnected = false
         isConnecting = false
         connectionPhase = nil

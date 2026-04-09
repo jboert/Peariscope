@@ -587,6 +587,7 @@ struct IOSConnectView: View {
     private func connectToLocalHost(_ host: DiscoveredHost) {
         let code = host.code.trimmingCharacters(in: .whitespaces)
         guard !code.isEmpty else { return }
+        UserDefaults.standard.set(code, forKey: "peariscope.lastViewerCode")
         SavedHost.save(code: code)
         savedHosts = SavedHost.loadAll()
         probeTask?.cancel()
@@ -600,13 +601,19 @@ struct IOSConnectView: View {
                 if let endpoint = host.endpoint, host.dhtPort > 0 {
                     if let hostIP = await LocalDiscoveryBrowser.resolveEndpoint(endpoint) {
                         CrashLog.write("[connect] LAN fast-connect: \(hostIP):\(host.dhtPort)")
-                        try await networkManager.connectLocal(code: code, hostIP: hostIP, dhtPort: host.dhtPort)
+                        try await networkManager.connectLocal(
+                            code: code,
+                            hostIP: hostIP,
+                            dhtPort: host.dhtPort,
+                            publicKeyHex: host.publicKeyHex
+                        )
                         return
                     } else {
                         CrashLog.write("[connect] Endpoint resolution failed, falling back to DHT")
                     }
                 }
                 // Fallback: regular DHT connect
+                CrashLog.write("[connect] LAN fast-connect unavailable, using DHT connect")
                 try await networkManager.connectFromQR(code)
             } catch {
                 CrashLog.write("[connect] connectToLocalHost error: \(error)")
@@ -618,6 +625,7 @@ struct IOSConnectView: View {
     private func connectToHost(code: String) {
         let trimmed = code.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        UserDefaults.standard.set(trimmed, forKey: "peariscope.lastViewerCode")
         SavedHost.save(code: trimmed)
         savedHosts = SavedHost.loadAll()
         // Cancel background host probes — they compete with the real connection
