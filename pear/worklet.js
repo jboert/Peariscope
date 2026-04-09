@@ -768,6 +768,7 @@ class PeariscopeWorklet {
     if (this._pendingConnection) {
       clearTimeout(this._pendingConnection.timeout)
       clearInterval(this._pendingConnection.statusInterval)
+      this._pendingConnection.discovery.destroy().catch(() => {})
       this._pendingConnection = null
     }
     // Disconnect any lingering peers from previous session
@@ -882,6 +883,7 @@ class PeariscopeWorklet {
     // Leave the swarm topic so the host doesn't reconnect to us
     if (this._pendingConnection) {
       clearTimeout(this._pendingConnection.timeout)
+      if (this._pendingConnection.statusInterval) clearInterval(this._pendingConnection.statusInterval)
       this._pendingConnection.discovery.destroy().catch(() => {})
       this._pendingConnection = null
     }
