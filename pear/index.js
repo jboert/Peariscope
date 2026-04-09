@@ -222,8 +222,8 @@ class PeariscopeNetwork {
   }
 
   _connectAttempt (reqId, code, client, attempt) {
-    const maxAttempts = 3
-    const timeoutMs = 45000
+    const maxAttempts = 4
+    const timeoutMs = 12000 + ((attempt - 1) * 3000)
 
     console.log(`[pear] Connection attempt ${attempt}/${maxAttempts} for code: ${code}`)
 

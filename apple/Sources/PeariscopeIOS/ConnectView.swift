@@ -601,7 +601,12 @@ struct IOSConnectView: View {
                 if let endpoint = host.endpoint, host.dhtPort > 0 {
                     if let hostIP = await LocalDiscoveryBrowser.resolveEndpoint(endpoint) {
                         CrashLog.write("[connect] LAN fast-connect: \(hostIP):\(host.dhtPort)")
-                        try await networkManager.connectLocal(code: code, hostIP: hostIP, dhtPort: host.dhtPort)
+                        try await networkManager.connectLocal(
+                            code: code,
+                            hostIP: hostIP,
+                            dhtPort: host.dhtPort,
+                            publicKeyHex: host.publicKeyHex
+                        )
                         return
                     } else {
                         CrashLog.write("[connect] Endpoint resolution failed, falling back to DHT")

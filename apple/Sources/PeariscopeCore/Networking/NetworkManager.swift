@@ -836,7 +836,7 @@ public final class NetworkManager: ObservableObject {
 
     /// Connect to a LAN-discovered peer by injecting its local address into the DHT.
     /// Falls back to regular DHT-based connect if host/port are unavailable.
-    public func connectLocal(code: String, hostIP: String, dhtPort: UInt16) async throws {
+    public func connectLocal(code: String, hostIP: String, dhtPort: UInt16, publicKeyHex: String? = nil) async throws {
         let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
         if isConnecting && lastConnectionCode == normalizedCode {
             debugLog("[net] connectLocal() ignored duplicate request while already connecting")
@@ -859,11 +859,33 @@ public final class NetworkManager: ObservableObject {
             try await startRuntime()
         }
         if useBareKit {
-            bareBridge.connectLocalPeer(code: normalizedCode, host: hostIP, port: dhtPort)
+            bareBridge.connectLocalPeer(code: normalizedCode, host: hostIP, port: dhtPort, publicKeyHex: publicKeyHex)
         } else {
             // Legacy path doesn't support local connect — fall through to DHT
             try await connect(code: normalizedCode)
         }
+    }
+
+    /// Managed reconnect loop for viewer-side recovery paths (stale stream, memory pressure).
+    /// Centralizes reconnect behavior to avoid multiple competing reconnect loops.
+    @discardableResult
+    public func reconnect(code: String, maxAttempts: Int = 5) async -> Bool {
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCode.isEmpty else { return false }
+        lastConnectionCode = normalizedCode
+        for attempt in 1...max(1, maxAttempts) {
+            try? await Task.sleep(for: .seconds(Double(attempt) * 2))
+            do {
+                try await connect(code: normalizedCode)
+                try? await Task.sleep(for: .seconds(2))
+                if !connectedPeers.isEmpty {
+                    return true
+                }
+            } catch {
+                debugLog("[net] managed reconnect attempt \(attempt) failed: \(error.localizedDescription)")
+            }
+        }
+        return false
     }
 
     /// Connect via TCP relay (legacy, for when BareKit isn't available)

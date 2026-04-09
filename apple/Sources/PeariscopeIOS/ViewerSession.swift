@@ -183,7 +183,6 @@ final class IOSViewerSession: ObservableObject {
         }
 
         networkManager.onPeerDisconnected = { [weak self] peer in
-            guard let self else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.addDiag("PEER DISCONNECTED: sid=\(peer.streamId)")
             }
@@ -426,7 +425,7 @@ final class IOSViewerSession: ObservableObject {
                     // means the host is gone but the stream didn't close cleanly
                     if self.idrRetryCount >= 15 && self.hasReceivedFirstFrame && !self.isReconnecting {
                         CrashLog.write("STALE CONNECTION: no frames for \(self.idrRetryCount)s — triggering reconnect")
-                        self.attemptReconnect()
+                        self.startManagedReconnect()
                     }
                 } else if frames > 0 {
                     self.idrRetryCount = 0
@@ -553,7 +552,7 @@ final class IOSViewerSession: ObservableObject {
             if !self.networkManager.isWorkletAlive {
                 try? await self.networkManager.startRuntime()
             }
-            self.attemptReconnect()
+            self.startManagedReconnect()
         }
     }
 
@@ -599,34 +598,24 @@ final class IOSViewerSession: ObservableObject {
         let availMB = os_proc_available_memory() / 1_048_576
         CrashLog.write("RECONNECT-AFTER-PRESSURE: mem=\(availMB)MB code=\(code.prefix(20))...")
         Task {
-            for attempt in 1...5 {
-                guard isReconnecting else { return }
-                let availMB = os_proc_available_memory() / 1_048_576
-                CrashLog.write("RECONNECT attempt \(attempt): mem=\(availMB)MB")
-                do {
-                    try await networkManager.connectFromQR(code)
-                    try? await Task.sleep(for: .seconds(3))
-                    if !networkManager.connectedPeers.isEmpty {
-                        CrashLog.write("RECONNECT success on attempt \(attempt)")
-                        isReconnecting = false
-                        // Re-setup decoders since they were stopped
-                        if let mtkView = self.mtkView {
-                            setup(mtkView: mtkView)
-                        }
-                        return
-                    }
-                } catch {
-                    CrashLog.write("RECONNECT attempt \(attempt) failed: \(error)")
+            let ok = await networkManager.reconnect(code: code, maxAttempts: 5)
+            guard isReconnecting else { return }
+            if ok {
+                CrashLog.write("RECONNECT success after pressure")
+                isReconnecting = false
+                // Re-setup decoders since they were stopped
+                if let mtkView = self.mtkView {
+                    setup(mtkView: mtkView)
                 }
-                try? await Task.sleep(for: .seconds(Double(attempt) * 2))
+            } else {
+                CrashLog.write("RECONNECT gave up after pressure")
+                isReconnecting = false
+                connectionLost = true
             }
-            CrashLog.write("RECONNECT gave up after 5 attempts")
-            isReconnecting = false
-            connectionLost = true
         }
     }
 
-    private func attemptReconnect() {
+    private func startManagedReconnect() {
         guard let code = lastCode, !isReconnecting else { return }
         guard networkManager.reconnectionManager.state == .idle else { return }
         // Only reconnect if we were actively viewing and peers dropped to 0
@@ -634,30 +623,17 @@ final class IOSViewerSession: ObservableObject {
         isReconnecting = true
         connectionLost = false
         let availMB = os_proc_available_memory() / 1_048_576
-        CrashLog.write("AUTO-RECONNECT starting: mem=\(availMB)MB code=\(code.prefix(20))...")
-        NSLog("[viewer] Connection lost, attempting auto-reconnect with code: %@", code)
+        CrashLog.write("MANAGED RECONNECT starting: mem=\(availMB)MB code=\(code.prefix(20))...")
         Task {
-            for attempt in 1...5 {
-                try? await Task.sleep(for: .seconds(Double(attempt) * 2))
-                guard isReconnecting else { return } // user may have manually disconnected
-                NSLog("[viewer] Reconnect attempt %d", attempt)
-                do {
-                    try await networkManager.connectFromQR(code)
-                    // Wait a moment for connection to establish
-                    try? await Task.sleep(for: .seconds(2))
-                    if !networkManager.connectedPeers.isEmpty {
-                        NSLog("[viewer] Reconnected successfully")
-                        isReconnecting = false
-                        requestIDR()
-                        return
-                    }
-                } catch {
-                    NSLog("[viewer] Reconnect attempt %d failed: %@", attempt, error.localizedDescription)
-                }
+            let ok = await networkManager.reconnect(code: code, maxAttempts: 5)
+            guard isReconnecting else { return }
+            if ok {
+                isReconnecting = false
+                requestIDR()
+            } else {
+                isReconnecting = false
+                connectionLost = true
             }
-            NSLog("[viewer] Auto-reconnect gave up after 5 attempts")
-            isReconnecting = false
-            connectionLost = true
         }
     }
 
@@ -672,13 +648,10 @@ final class IOSViewerSession: ObservableObject {
         connectionLost = false
         isReconnecting = true
         Task {
-            do {
-                try await networkManager.connectFromQR(code)
-            } catch {
-                NSLog("[viewer] retryConnection failed: %@", error.localizedDescription)
-                isReconnecting = false
-                connectionLost = true
-            }
+            let ok = await networkManager.reconnect(code: code, maxAttempts: 5)
+            isReconnecting = false
+            connectionLost = !ok
+            if ok { requestIDR() }
         }
     }
 

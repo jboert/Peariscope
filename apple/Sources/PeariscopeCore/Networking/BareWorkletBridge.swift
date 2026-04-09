@@ -331,8 +331,12 @@ public final class BareWorkletBridge: @unchecked Sendable {
     }
 
     /// Connect to a LAN-discovered peer by injecting its local address into the DHT first.
-    public func connectLocalPeer(code: String, host: String, port: UInt16) {
-        sendCommand(.connectLocalPeer, json: ["code": code, "host": host, "port": port])
+    public func connectLocalPeer(code: String, host: String, port: UInt16, publicKeyHex: String? = nil) {
+        var payload: [String: Any] = ["code": code, "host": host, "port": port]
+        if let publicKeyHex, !publicKeyHex.isEmpty {
+            payload["publicKeyHex"] = publicKeyHex
+        }
+        sendCommand(.connectLocalPeer, json: payload)
     }
 
     public func disconnect(peerKeyHex: String) {

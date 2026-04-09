@@ -751,8 +751,8 @@ class PeariscopeWorklet {
   }
 
   async _connectAttempt (code, attempt) {
-    const maxAttempts = 8
-    const timeoutMs = 15000 // 15s per attempt (faster retries)
+    const maxAttempts = 4
+    const timeoutMs = 12000 + ((attempt - 1) * 3000) // progressive: 12s, 15s, 18s, 21s
 
     // Clean up any previous attempt's discovery handle
     if (this._pendingConnection) {
