@@ -36,5 +36,8 @@ SUGGESTIONS.md
 test-bare.swift
 test/
 
+# Linux build artifacts
+linux/build/
+
 # Claude
 .claude/

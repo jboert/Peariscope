@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Peariscope
+Comment=P2P Remote Desktop
+Exec=peariscope-app
+Icon=peariscope
+Categories=Network;RemoteAccess;
+Terminal=false
