@@ -276,11 +276,7 @@ let ipcWriteChunks = []
 let ipcWriteLen = 0
 let ipcDraining = false
 let ipcDropCount = 0
-let streamsPaused = false
-let streamsPauseTimer = null
 const MAX_IPC_WRITE_BUFFER = 500000  // 500KB — lower threshold to trigger backpressure sooner
-const IPC_RESUME_THRESHOLD = 100000  // 100KB — resume streams when buffer drains
-const STREAM_PAUSE_TIMEOUT = 2000    // Force-resume after 2s to prevent permanent freeze
 
 function _writeIpcFrame (payload, forceWrite) {
   // Drop video data when write buffer is too large to prevent jetsam kill.
@@ -333,7 +329,6 @@ function _writeIpcFrame (payload, forceWrite) {
 function _drainIpcWriteBuffer () {
   ipcDraining = false
   if (ipcWriteChunks.length === 0) {
-    _resumeStreamsIfNeeded()
     return
   }
 
@@ -352,40 +347,7 @@ function _drainIpcWriteBuffer () {
     ipcDraining = true
     ipcPipe.once('drain', _drainIpcWriteBuffer)
   } else {
-    _resumeStreamsIfNeeded()
-  }
-}
-
-function _pauseStreams () {
-  if (streamsPaused || typeof worklet === 'undefined') return
-  streamsPaused = true
-  for (const [, peer] of worklet.peers) {
-    try { peer.stream.pause() } catch (e) {}
-  }
-  // Safety net: force-resume after timeout to prevent permanent video freeze.
-  // If drain events restore flow sooner, _resumeStreams clears this timer.
-  if (streamsPauseTimer) clearTimeout(streamsPauseTimer)
-  streamsPauseTimer = setTimeout(() => {
-    if (streamsPaused) {
-      sendLog('ipc-write: force-resuming streams after ' + STREAM_PAUSE_TIMEOUT + 'ms timeout')
-      _resumeStreams()
-    }
-  }, STREAM_PAUSE_TIMEOUT)
-}
-
-function _resumeStreams () {
-  if (!streamsPaused || typeof worklet === 'undefined') return
-  streamsPaused = false
-  if (streamsPauseTimer) { clearTimeout(streamsPauseTimer); streamsPauseTimer = null }
-  for (const [, peer] of worklet.peers) {
-    try { peer.stream.resume() } catch (e) {}
-  }
-  sendLog('ipc-write: resumed peer streams')
-}
-
-function _resumeStreamsIfNeeded () {
-  if (streamsPaused && ipcWriteLen < IPC_RESUME_THRESHOLD) {
-    _resumeStreams()
+    // drain complete
   }
 }
 

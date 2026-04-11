@@ -83,7 +83,7 @@ targets:
 
           # Pack the worklet bundle for macOS
           cd "$PEAR_SRC"
-          PATH="${PATH}:${PEAR_SRC}/node_modules/.bin"
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${PEAR_SRC}/node_modules/.bin"
           if [ ! -f "$PEAR_SRC/worklet.bundle" ] || [ "$PEAR_SRC/worklet.js" -nt "$PEAR_SRC/worklet.bundle" ]; then
             npx bare-pack --preset darwin --linked --base "$PEAR_SRC" --out "$PEAR_SRC/worklet.bundle" "$PEAR_SRC/worklet.js" 2>&1
             if [ $? -ne 0 ]; then echo "error: bare-pack failed for macOS worklet" >&2; exit 1; fi
@@ -104,16 +104,18 @@ targets:
           cp "$PEAR_SRC/index.js" "$PEAR_DEST/" 2>/dev/null || true
           cp "$PEAR_SRC/package.json" "$PEAR_DEST/" 2>/dev/null || true
           cp -R "$PEAR_SRC/lib" "$PEAR_DEST/lib" 2>/dev/null || true
-          if [ -d "$PEAR_SRC/node_modules" ]; then
+          if [ "$CONFIGURATION" = "Debug" ] && [ -d "$PEAR_SRC/node_modules" ]; then
             cp -R "$PEAR_SRC/node_modules" "$PEAR_DEST/node_modules"
           fi
           PROTO_DEST="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/protocol"
           mkdir -p "$PROTO_DEST"
           cp "${SRCROOT}/../protocol/messages.proto" "$PROTO_DEST/"
-          NODE_SRC=$(which node)
-          NODE_DEST="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/node"
-          cp "$NODE_SRC" "$NODE_DEST" 2>/dev/null || true
-          chmod +x "$NODE_DEST" 2>/dev/null || true
+          if [ "$CONFIGURATION" = "Debug" ]; then
+            NODE_SRC=$(which node)
+            NODE_DEST="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/node"
+            cp "$NODE_SRC" "$NODE_DEST" 2>/dev/null || true
+            chmod +x "$NODE_DEST" 2>/dev/null || true
+          fi
         basedOnDependencyAnalysis: false
 
   PeariscopeIOS:
@@ -167,7 +169,7 @@ targets:
 
           # Pack the worklet bundle for iOS
           cd "$PEAR_SRC"
-          PATH="${PATH}:${PEAR_SRC}/node_modules/.bin"
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${PEAR_SRC}/node_modules/.bin"
           if [ ! -f "$PEAR_SRC/worklet-ios.bundle" ] || [ "$PEAR_SRC/worklet.js" -nt "$PEAR_SRC/worklet-ios.bundle" ]; then
             npx bare-pack --preset ios --linked --base "$PEAR_SRC" --out "$PEAR_SRC/worklet-ios.bundle" "$PEAR_SRC/worklet.js" 2>&1
             if [ $? -ne 0 ]; then echo "error: bare-pack failed for iOS worklet" >&2; exit 1; fi

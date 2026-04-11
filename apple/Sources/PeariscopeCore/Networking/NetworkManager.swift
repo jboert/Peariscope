@@ -644,6 +644,13 @@ public final class NetworkManager: ObservableObject {
 
     /// Write diagnostic to a file since NSLog is suppressed on iOS 26
     private func diagWrite(_ msg: String) {
+        #if DEBUG
+        let diagnosticsEnabled = true
+        #else
+        let diagnosticsEnabled = UserDefaults.standard.bool(forKey: "peariscope.enableDiagnostics")
+        #endif
+        guard diagnosticsEnabled else { return }
+
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         let path = docs.appendingPathComponent("peariscope-diag.txt")
