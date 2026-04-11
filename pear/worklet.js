@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v47-relay-harden-20260411'
+const WORKLET_VERSION = 'v48-proactive-relay-20260411'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -443,6 +443,7 @@ class PeariscopeWorklet {
     this._dhtNodeReportInterval = null
     this._warmupInterval = null
     this._nextStreamId = 1
+    this._proactiveRelayLogged = false
   }
 
   setCachedKeyPair (publicKeyHex, secretKeyHex) {
@@ -590,7 +591,9 @@ class PeariscopeWorklet {
     swarmOpts.relayThrough = (force) => {
       if (!this.swarm || !this.swarm.dht) return null
       const dht = this.swarm.dht
-      const shouldAllowRelay = force || dht.randomized || dht.firewalled
+      const pending = this._pendingConnection
+      const proactiveRelay = !!(pending && !this._connectionSucceeded && (Date.now() - pending.startedAt) >= 6000)
+      const shouldAllowRelay = force || dht.randomized || dht.firewalled || proactiveRelay
       if (!shouldAllowRelay) return null
       // CRITICAL: dht.toArray() strips node.id (returns only {host, port}).
       // dht.table.toArray() returns full routing table entries with .id (public key Buffer)
@@ -602,6 +605,10 @@ class PeariscopeWorklet {
       const pool = routableCandidates.length > 0 ? routableCandidates : fallbackCandidates
       if (pool.length === 0) return null
       const node = pool[Math.floor(Math.random() * pool.length)]
+      if (proactiveRelay && !force && !this._proactiveRelayLogged) {
+        this._proactiveRelayLogged = true
+        sendLog('relayThrough: enabling proactive relay after direct-only grace period')
+      }
       sendLog('relayThrough: force=' + force + ' firewalled=' + dht.firewalled + ' randomized=' + dht.randomized +
         ' table=' + nodes.length + ' candidates=' + routableCandidates.length + ' fallback=' + fallbackCandidates.length)
       return node.id || null
@@ -827,6 +834,7 @@ class PeariscopeWorklet {
       this._pendingConnection.discovery.destroy().catch(() => {})
       this._pendingConnection = null
     }
+    this._proactiveRelayLogged = false
     // Disconnect any lingering peers from previous session
     for (const [keyHex, peer] of this.peers) {
       if (!this.isHosting || !this.connectionInfo) {
@@ -880,13 +888,17 @@ class PeariscopeWorklet {
       sendLog('Connection status @' + elapsed + 's: ' + JSON.stringify(swarmInfo))
       // Update UI with progress
       if (swarmInfo.connecting > 0) {
-        sendConnectionStatus('connecting', 'Holepunching... (' + elapsed + 's)')
+        if (elapsed >= 8) {
+          sendConnectionStatus('connecting', 'Trying direct + relay... (' + elapsed + 's)')
+        } else {
+          sendConnectionStatus('connecting', 'Holepunching... (' + elapsed + 's)')
+        }
       }
     }, 5000)
 
     // Single overall timeout — long enough for holepunch + relay fallback.
     // Holepunch can take 10-30s, relay setup adds another 10-20s.
-    const OVERALL_TIMEOUT = 120000 // 2 minutes
+    const OVERALL_TIMEOUT = 90000 // 90 seconds
     const timeout = setTimeout(() => {
       if (this._connectionSucceeded) return
       clearInterval(statusInterval)
@@ -900,9 +912,10 @@ class PeariscopeWorklet {
         reason: 'Connection timed out after ' + (OVERALL_TIMEOUT / 1000) + 's'
       })
       this._pendingConnection = null
+      this._proactiveRelayLogged = false
     }, OVERALL_TIMEOUT)
 
-    this._pendingConnection = { code, timeout, statusInterval, discovery }
+    this._pendingConnection = { code, timeout, statusInterval, discovery, startedAt: Date.now() }
   }
 
   disconnectAllPeers () {
@@ -920,6 +933,7 @@ class PeariscopeWorklet {
       this._pendingConnection.discovery.destroy().catch(() => {})
       this._pendingConnection = null
     }
+    this._proactiveRelayLogged = false
     // Leave the viewer topic so swarm doesn't reconnect
     if (this._lastViewerTopic) {
       this.swarm.leave(this._lastViewerTopic).catch(() => {})
@@ -1108,6 +1122,7 @@ class PeariscopeWorklet {
         streamId
       })
       this._pendingConnection = null
+      this._proactiveRelayLogged = false
     }
 
     sendFrame(MSG.PEER_CONNECTED, {

@@ -225,6 +225,13 @@ final class IOSViewerSession: ObservableObject {
         return f
     }()
 
+    private func restoreVideoCallbackIfNeeded(_ reason: String) {
+        guard !videoCallbackActive, let cb = storedVideoCallback else { return }
+        networkManager.setDirectVideoCallback(cb)
+        videoCallbackActive = true
+        NSLog("[viewer] Video callback restored (%@)", reason)
+    }
+
     func setup(mtkView: MTKView) {
         NSLog("[viewer] setup() called, creating decoders and renderer")
         // Set up networkManager callbacks ONCE. Must happen here (not init)
@@ -313,6 +320,7 @@ final class IOSViewerSession: ObservableObject {
                 guard let self else { return }
                 switch pressure {
                 case .warning:
+                    self.restoreVideoCallbackIfNeeded("memory warning")
                     self.h265Decoder?.flushQueue()
                     NSLog("[viewer] Memory warning: flushed decoder queue")
                 case .critical:
@@ -322,14 +330,7 @@ final class IOSViewerSession: ObservableObject {
                     self.h264Decoder?.resetSession()
                     NSLog("[viewer] Memory critical: paused decoding")
                 case .normal:
-                    // Restore video callback after a .critical transition niled it.
-                    // Without this, video silently freezes forever even though mouse
-                    // (opposite direction) keeps working.
-                    if !self.videoCallbackActive, let cb = self.storedVideoCallback {
-                        self.networkManager.setDirectVideoCallback(cb)
-                        self.videoCallbackActive = true
-                        NSLog("[viewer] Memory normal: video callback restored")
-                    }
+                    self.restoreVideoCallbackIfNeeded("memory normal")
                 }
             }
 
@@ -599,6 +600,7 @@ final class IOSViewerSession: ObservableObject {
         // Clear video/control callbacks to stop data flow, but keep onPeerDisconnected
         // so we detect when the connection is fully dead.
         networkManager.setDirectVideoCallback(nil)
+        videoCallbackActive = false
         networkManager.onVideoData = nil
         networkManager.onAudioData = nil
         // Keep onControlData alive — PIN challenges need to work after reconnect
@@ -862,6 +864,7 @@ final class IOSViewerSession: ObservableObject {
         }
         // Clear callbacks first to stop new data flowing in
         networkManager.setDirectVideoCallback(nil)
+        videoCallbackActive = false
         networkManager.onVideoData = nil
         networkManager.onAudioData = nil
         networkManager.onControlData = nil
