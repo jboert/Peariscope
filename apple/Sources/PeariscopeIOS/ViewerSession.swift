@@ -412,17 +412,16 @@ final class IOSViewerSession: ObservableObject {
                     self.addDiag("hb: fps=\(frames) video=#\(IOSViewerSession.routeCount) peers=\(self.networkManager.connectedPeers.count) mem=\(availMB)MB h264=\(self.h264Decoder?.hasSession ?? false)")
                     self.addDiag("bridge: \(self.networkManager.bridgeDiagnosticSummary())")
                 } else if frames == 0 {
-                    // Post-first-frame freeze: one-line state dump per second.
-                    // Off the hot video-callback path on purpose — this fires from
-                    // the 1Hz timer, not per frame.
+                    // Post-first-frame freeze: one-line state dump per second via
+                    // CrashLog.write so it actually lands in the persistent log file.
+                    // iOS NSLog format args are classified as <private> in the unified
+                    // log and never make it off the device, so a prior NSLog-based
+                    // version of this line was invisible.
                     let pressure = self.memoryWatchdog.pressure
+                    let bridge = self.networkManager.bridgeDiagnosticSummary()
                     let h264Diag = self.h264Decoder?.diagnosticSummary() ?? "-"
                     let h265Diag = self.h265Decoder?.diagnosticSummary() ?? "-"
-                    NSLog("[viewer-freeze] fps=0 cb=%@ mem=%dMB pressure=%@ h264=%@ h265=%@",
-                          self.videoCallbackActive ? "set" : "NIL",
-                          availMB,
-                          String(describing: pressure),
-                          h264Diag, h265Diag)
+                    CrashLog.write("freeze: cb=\(self.videoCallbackActive ? "set" : "NIL") pressure=\(pressure) bridge=\(bridge) h264=\(h264Diag) h265=\(h265Diag)")
                 }
                 if availMB > 0 && availMB < 100 {
                     CrashLog.write("LOW MEMORY: \(availMB)MB — jetsam kill imminent")
