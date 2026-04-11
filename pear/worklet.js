@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v46-topic-filter-20260319'
+const WORKLET_VERSION = 'v47-relay-harden-20260411'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -147,6 +147,37 @@ function drainFrames () {
 
 let sendFrameCount = 0
 const MAX_IPC_PAYLOAD = 16000
+
+function _isPublicRoutableHost (host) {
+  if (!host || typeof host !== 'string') return false
+  const h = host.trim().toLowerCase()
+  if (!h || h === 'localhost' || h.endsWith('.local')) return false
+
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) {
+    const parts = h.split('.').map(n => Number(n))
+    if (parts.some(n => Number.isNaN(n) || n < 0 || n > 255)) return false
+    const [a, b] = parts
+    if (a === 0 || a === 10 || a === 127) return false
+    if (a === 169 && b === 254) return false
+    if (a === 172 && b >= 16 && b <= 31) return false
+    if (a === 192 && b === 168) return false
+    if (a === 192 && b === 0) return false
+    if (a === 100 && b >= 64 && b <= 127) return false
+    if (a === 198 && (b === 18 || b === 19)) return false
+    if (a >= 224) return false
+    return true
+  }
+
+  const v6 = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h
+  if (v6.includes(':')) {
+    if (v6 === '::' || v6 === '::1') return false
+    if (v6.startsWith('fe80:')) return false
+    if (v6.startsWith('fc') || v6.startsWith('fd')) return false
+    return true
+  }
+
+  return true
+}
 
 function sendFrame (type, jsonPayload, binaryPayload) {
   if (!ipcPipe) return
@@ -426,7 +457,7 @@ class PeariscopeWorklet {
     if (!this.swarm || !this.swarm.dht || !nodes || nodes.length === 0) return
     let added = 0
     for (const node of nodes) {
-      if (node.host && node.port && node.host !== '127.0.0.1' && node.host !== '::1') {
+      if (node.host && node.port && _isPublicRoutableHost(node.host)) {
         try {
           this.swarm.dht.addNode({ host: node.host, port: node.port })
           added++
@@ -444,11 +475,13 @@ class PeariscopeWorklet {
       try {
         const table = this.swarm.dht.toArray()
         if (table && table.length > 0) {
-          const nodes = table.map(n => ({
-            host: n.host,
-            port: n.port,
-            lastSeen: Date.now()
-          }))
+          const nodes = table
+            .filter(n => _isPublicRoutableHost(n.host))
+            .map(n => ({
+              host: n.host,
+              port: n.port,
+              lastSeen: Date.now()
+            }))
           sendFrame(MSG.DHT_NODES, { nodes })
         }
       } catch (e) {
@@ -512,7 +545,7 @@ class PeariscopeWorklet {
     // speeding up lookups without replacing the reliable default bootstrap.
     if (this._cachedNodes && this._cachedNodes.length > 0) {
       const routingNodes = this._cachedNodes
-        .filter(n => n.host && n.port && n.host !== '127.0.0.1' && n.host !== '::1' && n.host !== 'localhost')
+        .filter(n => n.host && n.port && _isPublicRoutableHost(n.host))
         .slice(0, 50)
         .map(n => ({ host: n.host, port: n.port }))
       if (routingNodes.length > 0) {
@@ -542,14 +575,21 @@ class PeariscopeWorklet {
     // between two symmetric NAT peers silently hang after peer discovery.
     swarmOpts.relayThrough = (force) => {
       if (!this.swarm || !this.swarm.dht) return null
-      if (!force && !this.swarm.dht.randomized) return null
+      const dht = this.swarm.dht
+      const shouldAllowRelay = force || dht.randomized || dht.firewalled
+      if (!shouldAllowRelay) return null
       // CRITICAL: dht.toArray() strips node.id (returns only {host, port}).
       // dht.table.toArray() returns full routing table entries with .id (public key Buffer)
       // which is what relay needs to dht.connect(publicKey) to the relay node.
-      const nodes = this.swarm.dht.table.toArray()
+      const nodes = dht.table.toArray()
       if (nodes.length === 0) return null
-      const node = nodes[Math.floor(Math.random() * nodes.length)]
-      sendLog('relayThrough: force=' + force + ' picking from ' + nodes.length + ' nodes, id=' + (node.id ? 'yes' : 'MISSING'))
+      const routableCandidates = nodes.filter(n => n.id && _isPublicRoutableHost(n.host))
+      const fallbackCandidates = nodes.filter(n => n.id)
+      const pool = routableCandidates.length > 0 ? routableCandidates : fallbackCandidates
+      if (pool.length === 0) return null
+      const node = pool[Math.floor(Math.random() * pool.length)]
+      sendLog('relayThrough: force=' + force + ' firewalled=' + dht.firewalled + ' randomized=' + dht.randomized +
+        ' table=' + nodes.length + ' candidates=' + routableCandidates.length + ' fallback=' + fallbackCandidates.length)
       return node.id || null
     }
 
@@ -626,7 +666,9 @@ class PeariscopeWorklet {
     try {
       const table = this.swarm.dht.toArray()
       if (table && table.length > 0) {
-        const nodes = table.map(n => ({ host: n.host, port: n.port, lastSeen: Date.now() }))
+        const nodes = table
+          .filter(n => _isPublicRoutableHost(n.host))
+          .map(n => ({ host: n.host, port: n.port, lastSeen: Date.now() }))
         sendFrame(MSG.DHT_NODES, { nodes })
         sendLog('Initial DHT report: ' + nodes.length + ' nodes')
       }

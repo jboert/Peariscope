@@ -534,6 +534,38 @@ public final class NetworkManager: ObservableObject {
     /// Nodes older than 7 days are expired
     private static let dhtNodeMaxAge: TimeInterval = 7 * 24 * 3600 * 1000 // ms (matches JS Date.now())
 
+    private static func isPublicRoutableHost(_ host: String) -> Bool {
+        let h = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if h.isEmpty || h == "localhost" || h.hasSuffix(".local") { return false }
+
+        let maybeV6 = (h.hasPrefix("[") && h.hasSuffix("]")) ? String(h.dropFirst().dropLast()) : h
+        if maybeV6.contains(":") {
+            if maybeV6 == "::" || maybeV6 == "::1" { return false }
+            if maybeV6.hasPrefix("fe80:") { return false } // link-local
+            if maybeV6.hasPrefix("fc") || maybeV6.hasPrefix("fd") { return false } // ULA
+            return true
+        }
+
+        let octets = h.split(separator: ".")
+        if octets.count == 4 {
+            let parts = octets.compactMap { Int($0) }
+            if parts.count != 4 || parts.contains(where: { $0 < 0 || $0 > 255 }) { return false }
+            let a = parts[0], b = parts[1]
+            if a == 0 || a == 10 || a == 127 { return false }
+            if a == 169 && b == 254 { return false }
+            if a == 172 && (16...31).contains(b) { return false }
+            if a == 192 && b == 168 { return false }
+            if a == 192 && b == 0 { return false }
+            if a == 100 && (64...127).contains(b) { return false }
+            if a == 198 && (b == 18 || b == 19) { return false }
+            if a >= 224 { return false }
+            return true
+        }
+
+        // Hostname (e.g. bootstrap DNS names)
+        return true
+    }
+
     /// Merge incoming DHT nodes with existing cache: dedup by host:port,
     /// update lastSeen timestamps, expire stale nodes, prioritize non-standard ports.
     private func mergeDhtNodesCache(_ incoming: [[String: Any]]) {
@@ -549,7 +581,8 @@ public final class NetworkManager: ObservableObject {
         // Merge incoming — newer lastSeen wins
         let now = Date().timeIntervalSince1970 * 1000
         for node in incoming {
-            guard let host = node["host"] as? String, let port = node["port"] as? Int else { continue }
+            guard let host = node["host"] as? String, let port = node["port"] as? Int,
+                  Self.isPublicRoutableHost(host), (1...65535).contains(port) else { continue }
             let key = "\(host):\(port)"
             let incomingLastSeen = (node["lastSeen"] as? Double) ?? now
             if let existing = nodeMap[key], let existingLastSeen = existing["lastSeen"] as? Double {
@@ -600,6 +633,10 @@ public final class NetworkManager: ObservableObject {
         let now = Date().timeIntervalSince1970 * 1000
         let cutoff = now - dhtNodeMaxAge
         return nodes.filter { node in
+            guard let host = node["host"] as? String,
+                  let port = node["port"] as? Int,
+                  Self.isPublicRoutableHost(host),
+                  (1...65535).contains(port) else { return false }
             guard let lastSeen = node["lastSeen"] as? Double else { return true } // keep legacy nodes without timestamps
             return lastSeen > cutoff
         }
