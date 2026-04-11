@@ -24,6 +24,7 @@ public final class H265Decoder: @unchecked Sendable {
     public func flushQueue() {
         pendingLock.lock()
         queuedBlocks = 0
+        queuedBlocksFullSince = 0
         pendingLock.unlock()
         NSLog("[h265] Frame queue flushed")
     }
@@ -36,6 +37,7 @@ public final class H265Decoder: @unchecked Sendable {
             self.recreateSession()
             self.pendingLock.lock()
             self.queuedBlocks = 0
+            self.queuedBlocksFullSince = 0
             self.pendingLock.unlock()
         }
     }
@@ -44,6 +46,11 @@ public final class H265Decoder: @unchecked Sendable {
     private let pendingLock = NSLock()
     private var queuedBlocks: Int = 0
     private static let maxQueuedBlocks = 2
+
+    /// Track when queuedBlocks last hit max — reset if stuck too long.
+    /// Mirrors the safety net in H264 Decoder.swift; without this, a hung VT
+    /// session leaves queuedBlocks at max forever and video freezes permanently.
+    private var queuedBlocksFullSince: CFAbsoluteTime = 0
 
     /// Time gate: drop frames arriving faster than display refresh to prevent VT
     /// from allocating hundreds of pixel buffers during network burst delivery.
@@ -102,9 +109,22 @@ public final class H265Decoder: @unchecked Sendable {
         }
         lastAcceptTime = now
         if queuedBlocks >= Self.maxQueuedBlocks {
-            queueFullDrops += 1
-            pendingLock.unlock()
-            return
+            // If stuck at max for >2 seconds, VT is probably hung (session
+            // corruption, pool exhaustion) — reset the counter to unblock.
+            // Matches the H264 safety net in Decoder.swift.
+            if queuedBlocksFullSince == 0 {
+                queuedBlocksFullSince = now
+            } else if now - queuedBlocksFullSince > 2.0 {
+                NSLog("[h265] queuedBlocks stuck at %d for >2s, resetting", queuedBlocks)
+                queuedBlocks = 0
+                queuedBlocksFullSince = 0
+            } else {
+                queueFullDrops += 1
+                pendingLock.unlock()
+                return
+            }
+        } else {
+            queuedBlocksFullSince = 0
         }
         queuedBlocks += 1
         pendingLock.unlock()

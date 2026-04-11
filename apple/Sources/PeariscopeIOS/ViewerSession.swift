@@ -72,6 +72,15 @@ final class IOSViewerSession: ObservableObject {
     private var reconnectStateCancellable: AnyCancellable?
     private var memoryWatchdog = MemoryWatchdog()
     private var memoryCancellable: AnyCancellable?
+    /// Cached ch0 video callback so the memory watchdog can restore it after
+    /// a .critical → .normal transition. Without this, setDirectVideoCallback(nil)
+    /// on .critical becomes permanent and video silently freezes forever while
+    /// mouse input (opposite direction) keeps working.
+    private var storedVideoCallback: ((Data) -> Void)?
+    /// Mirrors whether the direct video callback is currently installed on the
+    /// bridge, so the heartbeat diagnostic can log it without reaching into the
+    /// bridge from the main actor.
+    private var videoCallbackActive = false
 
     // Jitter tracking: variance in inter-frame arrival times
     nonisolated(unsafe) private var lastFrameArrival: CFAbsoluteTime = 0
@@ -308,11 +317,19 @@ final class IOSViewerSession: ObservableObject {
                     NSLog("[viewer] Memory warning: flushed decoder queue")
                 case .critical:
                     self.networkManager.setDirectVideoCallback(nil)
+                    self.videoCallbackActive = false
                     self.h265Decoder?.resetSession()
                     self.h264Decoder?.resetSession()
                     NSLog("[viewer] Memory critical: paused decoding")
                 case .normal:
-                    break
+                    // Restore video callback after a .critical transition niled it.
+                    // Without this, video silently freezes forever even though mouse
+                    // (opposite direction) keeps working.
+                    if !self.videoCallbackActive, let cb = self.storedVideoCallback {
+                        self.networkManager.setDirectVideoCallback(cb)
+                        self.videoCallbackActive = true
+                        NSLog("[viewer] Memory normal: video callback restored")
+                    }
                 }
             }
 
@@ -325,7 +342,7 @@ final class IOSViewerSession: ObservableObject {
         //
         // IMPORTANT: This closure must be minimal — no mutable captured vars, no file I/O,
         // no complex diagnostics. It runs on BareKit's thread pool.
-        networkManager.setDirectVideoCallback { [weak self] data in
+        let videoCallback: (Data) -> Void = { [weak self] data in
             guard data.count >= 5 else { return }
             self?.addReceivedBytes(data.count)
             IOSViewerSession.routeCount += 1
@@ -334,6 +351,9 @@ final class IOSViewerSession: ObservableObject {
             h264.decode(annexBData: data)
             h265.decode(annexBData: data)
         }
+        self.storedVideoCallback = videoCallback
+        self.videoCallbackActive = true
+        networkManager.setDirectVideoCallback(videoCallback)
 
         // Set up audio playback
         // NOTE: AVAudioSession is configured once at app launch (PeariscopeAppDelegate).
@@ -390,6 +410,18 @@ final class IOSViewerSession: ObservableObject {
                 if !self.hasReceivedFirstFrame {
                     self.addDiag("hb: fps=\(frames) video=#\(IOSViewerSession.routeCount) peers=\(self.networkManager.connectedPeers.count) mem=\(availMB)MB h264=\(self.h264Decoder?.hasSession ?? false)")
                     self.addDiag("bridge: \(self.networkManager.bridgeDiagnosticSummary())")
+                } else if frames == 0 {
+                    // Post-first-frame freeze: one-line state dump per second.
+                    // Off the hot video-callback path on purpose — this fires from
+                    // the 1Hz timer, not per frame.
+                    let pressure = self.memoryWatchdog.pressure
+                    let h264Diag = self.h264Decoder?.diagnosticSummary() ?? "-"
+                    let h265Diag = self.h265Decoder?.diagnosticSummary() ?? "-"
+                    NSLog("[viewer-freeze] fps=0 cb=%@ mem=%dMB pressure=%@ h264=%@ h265=%@",
+                          self.videoCallbackActive ? "set" : "NIL",
+                          availMB,
+                          String(describing: pressure),
+                          h264Diag, h265Diag)
                 }
                 if availMB > 0 && availMB < 100 {
                     CrashLog.write("LOW MEMORY: \(availMB)MB — jetsam kill imminent")
