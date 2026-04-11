@@ -393,7 +393,21 @@ function sendLog (msg) {
   sendFrame(MSG.LOG, { message: msg })
 }
 
+// Connection phase wall-clock timing. Helps diagnose WAN slow-connect by
+// showing which phase (searching / connecting / holepunching / relay) eats
+// the most time. Resets on every new 'starting' so it tracks one attempt.
+let connectStartTime = 0
+let lastStatusTime = 0
 function sendConnectionStatus (phase, detail) {
+  const now = typeof Date !== 'undefined' && typeof Date.now === 'function' ? Date.now() : 0
+  if (phase === 'starting' || connectStartTime === 0) {
+    connectStartTime = now
+    lastStatusTime = 0
+  }
+  const totalMs = connectStartTime > 0 ? (now - connectStartTime) : 0
+  const deltaMs = lastStatusTime > 0 ? (now - lastStatusTime) : 0
+  lastStatusTime = now
+  sendLog('connect-phase phase=' + phase + ' detail="' + detail + '" total=' + totalMs + 'ms delta=' + deltaMs + 'ms')
   sendFrame(MSG.CONNECTION_STATUS, { phase, detail })
 }
 
