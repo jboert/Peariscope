@@ -148,6 +148,27 @@ function drainFrames () {
 let sendFrameCount = 0
 const MAX_IPC_PAYLOAD = 16000
 
+// Detect IDR/keyframes in Annex B data by inspecting the first NAL unit type.
+// Keyframes must never be dropped under backpressure — dropping a keyframe leaves
+// the decoder stuck until the next IDR (~1s), and if that next keyframe also
+// lands during backpressure the viewer freezes indefinitely.
+// H.265: VPS=32, SPS=33, PPS=34, IDR_W_RADL=19, IDR_N_LP=20
+// H.264: SPS=7, PPS=8, IDR=5
+function isAnnexBKeyframe (data) {
+  if (!data || data.length < 5) return false
+  let nalByte = -1
+  if (data[0] === 0 && data[1] === 0 && data[2] === 0 && data[3] === 1) {
+    nalByte = data[4]
+  } else if (data[0] === 0 && data[1] === 0 && data[2] === 1) {
+    nalByte = data[3]
+  }
+  if (nalByte < 0) return false
+  const h265type = (nalByte >> 1) & 0x3F
+  const h264type = nalByte & 0x1F
+  return (h265type >= 32 && h265type <= 34) || h265type === 19 || h265type === 20 ||
+         h264type === 5 || h264type === 7 || h264type === 8
+}
+
 function _isPublicRoutableHost (host) {
   if (!host || typeof host !== 'string') return false
   const h = host.trim().toLowerCase()
@@ -186,15 +207,23 @@ function sendFrame (type, jsonPayload, binaryPayload) {
   // Without this, each sendFrame call allocates jsonBuf + payload Buffers
   // even if _writeIpcFrame would drop them. At 43K calls/sec during burst
   // delivery (from StreamMux phantom frames), this wastes ~200MB/sec of V8 heap.
+  //
+  // Keyframes on ch0 (video) are exempt from the drop — losing a keyframe
+  // leaves the viewer's decoder frozen until the next IDR (~1s later) and if
+  // that IDR also arrives during backpressure the viewer stays frozen forever.
   if (type === MSG.STREAM_DATA_OUT && ipcWriteLen > MAX_IPC_WRITE_BUFFER) {
-    ipcDropCount++
-    if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
-      sendLog('sendFrame: early drop, writeBuf=' + ipcWriteLen + ' dropped=' + ipcDropCount)
+    const isCh0Keyframe = jsonPayload && jsonPayload.channel === 0 &&
+                          binaryPayload && isAnnexBKeyframe(binaryPayload)
+    if (!isCh0Keyframe) {
+      ipcDropCount++
+      if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
+        sendLog('sendFrame: early drop, writeBuf=' + ipcWriteLen + ' dropped=' + ipcDropCount)
+      }
+      // Don't pause peer streams — pause() stops the readable side which freezes
+      // ALL incoming data (video + control). Input still works (writable side)
+      // but video dies. Let UDX handle its own flow control instead.
+      return
     }
-    // Don't pause peer streams — pause() stops the readable side which freezes
-    // ALL incoming data (video + control). Input still works (writable side)
-    // but video dies. Let UDX handle its own flow control instead.
-    return
   }
 
   let payload
@@ -228,12 +257,17 @@ function sendFrame (type, jsonPayload, binaryPayload) {
     // Estimate total IPC size for all chunks to check backpressure atomically
     const estimatedTotalSize = totalChunks * (4 + 1 + 2 + 80 + chunkDataMax) // 4=header, 80~json overhead
     if (ipcWriteLen + estimatedTotalSize > MAX_IPC_WRITE_BUFFER && type === MSG.STREAM_DATA_OUT) {
-      // Drop the ENTIRE frame — never send partial chunks
-      ipcDropCount++
-      if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
-        sendLog('ipc-write: dropping entire chunked frame, writeBuf=' + ipcWriteLen + ' frameSize=' + estimatedTotalSize + ' chunks=' + totalChunks + ' dropped=' + ipcDropCount)
+      // Ch0 keyframes are exempt — see note in the early-drop branch above.
+      const isCh0Keyframe = jsonPayload && jsonPayload.channel === 0 &&
+                            isAnnexBKeyframe(binaryPayload)
+      if (!isCh0Keyframe) {
+        // Drop the ENTIRE frame — never send partial chunks
+        ipcDropCount++
+        if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
+          sendLog('ipc-write: dropping entire chunked frame, writeBuf=' + ipcWriteLen + ' frameSize=' + estimatedTotalSize + ' chunks=' + totalChunks + ' dropped=' + ipcDropCount)
+        }
+        return
       }
-      return
     }
 
     for (let i = 0; i < totalChunks; i++) {
@@ -276,7 +310,11 @@ let ipcWriteChunks = []
 let ipcWriteLen = 0
 let ipcDraining = false
 let ipcDropCount = 0
-const MAX_IPC_WRITE_BUFFER = 500000  // 500KB — lower threshold to trigger backpressure sooner
+// 2MB matches BareWorkletBridge.maxPendingWriteBytes on the Swift side and
+// gives headroom for 4–5 in-flight chunked keyframes at high resolutions.
+// A single chunked IDR at 3440×1440 can be 300–500KB; a 500KB threshold gets
+// blown by one keyframe alone, which is what caused the viewer freeze.
+const MAX_IPC_WRITE_BUFFER = 2000000
 
 function _writeIpcFrame (payload, forceWrite) {
   // Drop video data when write buffer is too large to prevent jetsam kill.
@@ -970,29 +1008,7 @@ class PeariscopeWorklet {
       ch0total++
       ch0sinceLast++
 
-      // Detect keyframes by inspecting first NAL unit type after Annex B start code.
-      // Keyframes MUST never be dropped — missing keyframes cause blocky corruption
-      // and frozen regions until the next keyframe arrives (~1 second later).
-      // H.265: VPS NAL type = 32 (0x40 >> 1), SPS = 33, PPS = 34, IDR = 19/20
-      // H.264: SPS NAL type = 7 (0x67 & 0x1F), IDR = 5
-      let isKeyframe = false
-      if (data.length >= 5) {
-        // Find first NAL unit after start code (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
-        let nalByte = -1
-        if (data[0] === 0 && data[1] === 0 && data[2] === 0 && data[3] === 1) {
-          nalByte = data[4]
-        } else if (data[0] === 0 && data[1] === 0 && data[2] === 1) {
-          nalByte = data[3]
-        }
-        if (nalByte >= 0) {
-          const h265type = (nalByte >> 1) & 0x3F
-          const h264type = nalByte & 0x1F
-          // H.265 VPS=32, SPS=33, PPS=34, IDR_W_RADL=19, IDR_N_LP=20
-          // H.264 SPS=7, PPS=8, IDR=5
-          isKeyframe = (h265type >= 32 && h265type <= 34) || h265type === 19 || h265type === 20 ||
-                       h264type === 5 || h264type === 7 || h264type === 8
-        }
-      }
+      const isKeyframe = isAnnexBKeyframe(data)
 
       // Counter gate: always skip if we haven't seen enough frames since last forward
       // BUT never skip keyframes

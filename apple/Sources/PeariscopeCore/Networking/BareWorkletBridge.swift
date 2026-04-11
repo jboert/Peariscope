@@ -1,6 +1,7 @@
 import Foundation
 import BareKit
 import Security
+import CryptoKit
 
 /// Message types sent from native to the JS worklet.
 private enum NativeToWorklet: UInt8 {
@@ -233,7 +234,22 @@ public final class BareWorkletBridge: @unchecked Sendable {
             throw NSError(domain: "BareWorkletBridge", code: 4, userInfo: [NSLocalizedDescriptionKey: "worklet.bundle is not valid UTF-8"])
         }
         w.start("/worklet.bundle", source: bundleStr, encoding: String.Encoding.utf8.rawValue, arguments: nil)
-        print("[bare] Worklet started (\(bundleData.count) bytes)")
+
+        // Log bundle identity so rename-drift / stale bundles surface at runtime
+        // instead of silently running old code. Size + SHA1 pins the exact content;
+        // mtime pins which build produced it.
+        let shortSha: String = {
+            let digest = Insecure.SHA1.hash(data: bundleData)
+            return digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+        }()
+        let mtimeStr: String = {
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: bundlePath),
+                  let date = attrs[.modificationDate] as? Date else { return "?" }
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            return fmt.string(from: date)
+        }()
+        NSLog("[bare] Worklet started (%d bytes, sha1=%@, mtime=%@)", bundleData.count, shortSha, mtimeStr)
 
         // Create IPC AFTER start - pipe fds are only valid after worklet starts
         guard let bareIpc = BareIPC(worklet: w) else {
