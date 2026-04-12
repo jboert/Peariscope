@@ -449,8 +449,12 @@ class PeariscopeWorklet {
     this._nextStreamId = 1
     this._proactiveRelayLogged = false
     this._verifiedRelayPool = []
-    // Resolved once start() has finished bootstrapping the DHT AND completed
-    // the initial firewall probe. connectToPeer/startHosting must await this.
+    // _bootstrapReady: resolved after DHT bootstrap (swarm.listen). Enough
+    // for viewers to start looking up topics — no NAT probe needed.
+    this._bootstrapReadyResolve = null
+    this._bootstrapReady = new Promise(r => { this._bootstrapReadyResolve = r })
+    // _ready: resolved after bootstrap + NAT probe + firewalled override.
+    // Hosts must await this before serving (need FIREWALL.OPEN in handshakes).
     this._readyResolve = null
     this._ready = new Promise(r => { this._readyResolve = r })
   }
@@ -528,11 +532,11 @@ class PeariscopeWorklet {
     // setCachedKeyPair() is called from an IPC message that may arrive after start()
     // has begun executing. Without this wait, start() always generates a fresh keypair.
     if (!this._cachedKeyPair) {
-      sendLog('Waiting up to 500ms for cached keypair from native...')
+      sendLog('Waiting up to 200ms for cached keypair from native...')
       this._cachedKeyPairPromise = new Promise(resolve => {
         this._cachedKeyPairResolve = resolve
       })
-      const timeout = new Promise(resolve => setTimeout(resolve, 500))
+      const timeout = new Promise(resolve => setTimeout(resolve, 200))
       await Promise.race([this._cachedKeyPairPromise, timeout])
       this._cachedKeyPairResolve = null
       this._cachedKeyPairPromise = null
@@ -693,6 +697,13 @@ class PeariscopeWorklet {
     sendLog('Remote address: ' + (addr ? addr.host + ':' + addr.port : 'unknown'))
     sendLog('DHT port: ' + dht.address().port + ' nodes: ' + dht.toArray().length)
 
+    // Signal bootstrap ready — viewers can start topic lookups immediately
+    // without waiting for the NAT probe. Only hosts need the full probe.
+    if (this._bootstrapReadyResolve) {
+      this._bootstrapReadyResolve()
+      this._bootstrapReadyResolve = null
+    }
+
     // Start periodic DHT node reporting for native caching
     this._startDhtNodeReporting()
     // Report initial nodes immediately
@@ -715,7 +726,7 @@ class PeariscopeWorklet {
     // every DHT.connect dies to HOLEPUNCH_ABORTED at server-side HANDSHAKE_INITIAL_TIMEOUT.
     // Kick the probe immediately and wait up to ~6s for it to settle.
     sendLog('Forcing early NAT probe (bypassing 20-minute stableTicks)...')
-    const natDeadline = Date.now() + 6000
+    const natDeadline = Date.now() + 3000
     let probeAttempts = 0
     while (dht.firewalled && Date.now() < natDeadline) {
       probeAttempts++
@@ -725,7 +736,7 @@ class PeariscopeWorklet {
         sendLog('NAT probe error: ' + (e.message || e))
       }
       if (!dht.firewalled) break
-      await new Promise(r => setTimeout(r, 500))
+      await new Promise(r => setTimeout(r, 250))
     }
     sendLog('NAT probe settled: firewalled=' + dht.firewalled +
       ' ephemeral=' + dht.ephemeral +
@@ -950,13 +961,12 @@ class PeariscopeWorklet {
   async connectToPeer (code) {
     sendLog('Connecting with code: ' + code)
 
-    // Wait for start() to finish bootstrapping + NAT probe before joining
-    // the swarm — otherwise dht.connect fires against an uninitialized DHT
-    // with firewalled=true stuck as a stale default.
-    if (this._ready) {
-      sendLog('Waiting for DHT ready before joining topic...')
-      try { await this._ready } catch (e) {}
-      sendLog('DHT ready; proceeding with connect')
+    // Only wait for DHT bootstrap — viewer doesn't need NAT probe.
+    // The host handles FIREWALL.OPEN; viewer just needs a working DHT.
+    if (this._bootstrapReady) {
+      sendLog('Waiting for DHT bootstrap before joining topic...')
+      try { await this._bootstrapReady } catch (e) {}
+      sendLog('DHT bootstrapped; proceeding with connect')
     }
 
     // Leave old viewer topic before joining new one — prevents stale swarm
