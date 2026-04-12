@@ -72,6 +72,15 @@ final class IOSViewerSession: ObservableObject {
     private var reconnectStateCancellable: AnyCancellable?
     private var memoryWatchdog = MemoryWatchdog()
     private var memoryCancellable: AnyCancellable?
+    /// Cached ch0 video callback so the memory watchdog can restore it after
+    /// a .critical → .normal transition. Without this, setDirectVideoCallback(nil)
+    /// on .critical becomes permanent and video silently freezes forever while
+    /// mouse input (opposite direction) keeps working.
+    private var storedVideoCallback: ((Data) -> Void)?
+    /// Mirrors whether the direct video callback is currently installed on the
+    /// bridge, so the heartbeat diagnostic can log it without reaching into the
+    /// bridge from the main actor.
+    private var videoCallbackActive = false
 
     // Jitter tracking: variance in inter-frame arrival times
     nonisolated(unsafe) private var lastFrameArrival: CFAbsoluteTime = 0
@@ -213,6 +222,13 @@ final class IOSViewerSession: ObservableObject {
         return f
     }()
 
+    private func restoreVideoCallbackIfNeeded(_ reason: String) {
+        guard !videoCallbackActive, let cb = storedVideoCallback else { return }
+        networkManager.setDirectVideoCallback(cb)
+        videoCallbackActive = true
+        NSLog("[viewer] Video callback restored (%@)", reason)
+    }
+
     func setup(mtkView: MTKView) {
         NSLog("[viewer] setup() called, creating decoders and renderer")
         // Set up networkManager callbacks ONCE. Must happen here (not init)
@@ -301,15 +317,17 @@ final class IOSViewerSession: ObservableObject {
                 guard let self else { return }
                 switch pressure {
                 case .warning:
+                    self.restoreVideoCallbackIfNeeded("memory warning")
                     self.h265Decoder?.flushQueue()
                     NSLog("[viewer] Memory warning: flushed decoder queue")
                 case .critical:
                     self.networkManager.setDirectVideoCallback(nil)
+                    self.videoCallbackActive = false
                     self.h265Decoder?.resetSession()
                     self.h264Decoder?.resetSession()
                     NSLog("[viewer] Memory critical: paused decoding")
                 case .normal:
-                    break
+                    self.restoreVideoCallbackIfNeeded("memory normal")
                 }
             }
 
@@ -322,7 +340,7 @@ final class IOSViewerSession: ObservableObject {
         //
         // IMPORTANT: This closure must be minimal — no mutable captured vars, no file I/O,
         // no complex diagnostics. It runs on BareKit's thread pool.
-        networkManager.setDirectVideoCallback { [weak self] data in
+        let videoCallback: (Data) -> Void = { [weak self] data in
             guard data.count >= 5 else { return }
             self?.addReceivedBytes(data.count)
             IOSViewerSession.routeCount += 1
@@ -331,6 +349,9 @@ final class IOSViewerSession: ObservableObject {
             h264.decode(annexBData: data)
             h265.decode(annexBData: data)
         }
+        self.storedVideoCallback = videoCallback
+        self.videoCallbackActive = true
+        networkManager.setDirectVideoCallback(videoCallback)
 
         // Set up audio playback
         // NOTE: AVAudioSession is configured once at app launch (PeariscopeAppDelegate).
@@ -387,6 +408,17 @@ final class IOSViewerSession: ObservableObject {
                 if !self.hasReceivedFirstFrame {
                     self.addDiag("hb: fps=\(frames) video=#\(IOSViewerSession.routeCount) peers=\(self.networkManager.connectedPeers.count) mem=\(availMB)MB h264=\(self.h264Decoder?.hasSession ?? false)")
                     self.addDiag("bridge: \(self.networkManager.bridgeDiagnosticSummary())")
+                } else if frames == 0 {
+                    // Post-first-frame freeze: one-line state dump per second via
+                    // CrashLog.write so it actually lands in the persistent log file.
+                    // iOS NSLog format args are classified as <private> in the unified
+                    // log and never make it off the device, so a prior NSLog-based
+                    // version of this line was invisible.
+                    let pressure = self.memoryWatchdog.pressure
+                    let bridge = self.networkManager.bridgeDiagnosticSummary()
+                    let h264Diag = self.h264Decoder?.diagnosticSummary() ?? "-"
+                    let h265Diag = self.h265Decoder?.diagnosticSummary() ?? "-"
+                    CrashLog.write("freeze: cb=\(self.videoCallbackActive ? "set" : "NIL") pressure=\(pressure) bridge=\(bridge) h264=\(h264Diag) h265=\(h265Diag)")
                 }
                 if availMB > 0 && availMB < 100 {
                     CrashLog.write("LOW MEMORY: \(availMB)MB — jetsam kill imminent")
@@ -564,6 +596,7 @@ final class IOSViewerSession: ObservableObject {
         // Clear video/control callbacks to stop data flow, but keep onPeerDisconnected
         // so we detect when the connection is fully dead.
         networkManager.setDirectVideoCallback(nil)
+        videoCallbackActive = false
         networkManager.onVideoData = nil
         networkManager.onAudioData = nil
         // Keep onControlData alive — PIN challenges need to work after reconnect
@@ -802,6 +835,7 @@ final class IOSViewerSession: ObservableObject {
         }
         // Clear callbacks first to stop new data flowing in
         networkManager.setDirectVideoCallback(nil)
+        videoCallbackActive = false
         networkManager.onVideoData = nil
         networkManager.onAudioData = nil
         networkManager.onControlData = nil

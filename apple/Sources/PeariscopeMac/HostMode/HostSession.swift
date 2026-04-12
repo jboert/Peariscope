@@ -12,7 +12,7 @@ import Security
 public final class HostSession: ObservableObject {
     @Published public var isActive = false
     @Published public var fps: Double = 0
-    @Published public var bitrate: Int = 8_000_000
+    @Published public var bitrate: Int = 12_000_000
     @Published public var selectedDisplay: SCDisplay?
     @Published public var availableDisplays: [SCDisplay] = []
     @Published public var hasAccessibilityPermission = false
@@ -109,11 +109,22 @@ public final class HostSession: ObservableObject {
         self.requirePinVerification = UserDefaults.standard.object(forKey: "peariscope.requirePin") as? Bool ?? true
         // Migrate PIN from UserDefaults to Keychain (one-time, after security hardening)
         var pin = Self.loadPinFromKeychain()
-        if pin.isEmpty, let legacyPin = UserDefaults.standard.string(forKey: "peariscope.pinCode"), !legacyPin.isEmpty {
-            Self.savePinToKeychain(legacyPin)
-            UserDefaults.standard.removeObject(forKey: "peariscope.pinCode")
-            pin = legacyPin
-            HostSession.log("[host] Migrated PIN from UserDefaults to Keychain")
+        if pin.isEmpty {
+            // Try string first, then fall back to reading as Any and converting —
+            // UserDefaults may store numeric PINs as NSNumber, not NSString.
+            var legacyPin: String?
+            if let s = UserDefaults.standard.string(forKey: "peariscope.pinCode"), !s.isEmpty {
+                legacyPin = s
+            } else if let obj = UserDefaults.standard.object(forKey: "peariscope.pinCode") {
+                let s = "\(obj)"
+                if !s.isEmpty { legacyPin = s }
+            }
+            if let legacyPin {
+                Self.savePinToKeychain(legacyPin)
+                UserDefaults.standard.removeObject(forKey: "peariscope.pinCode")
+                pin = legacyPin
+                HostSession.log("[host] Migrated PIN from UserDefaults to Keychain")
+            }
         }
         self.pinCode = pin
         let savedMaxViewers = UserDefaults.standard.integer(forKey: "peariscope.maxViewers")
@@ -236,7 +247,17 @@ public final class HostSession: ObservableObject {
             }
 
             HostSession.log("[host] PIN check: requirePin=\(self.requirePinVerification) pinLen=\(self.pinCode.count)")
-            if self.requirePinVerification && self.pinCode.count >= 6 {
+            if self.requirePinVerification {
+                if self.pinCode.count < 6 {
+                    // PIN is required but not configured or failed to load (e.g. Keychain
+                    // migration failure). Reject the connection — never silently grant access.
+                    HostSession.log("[host] PIN required but pinCode is empty/too short — rejecting peer: \(fingerprint)")
+                    Task { @MainActor in
+                        try? await self.networkManager.disconnect(peerKey: Data(hex: peer.id))
+                    }
+                    return
+                }
+
                 // Block this peer from receiving video/input/control/audio until PIN verified
                 self.pendingPeerIds.insert(peer.id)
                 self.networkManager.blockedStreamIds.insert(peer.streamId)

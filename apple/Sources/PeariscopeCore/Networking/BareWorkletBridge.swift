@@ -1,6 +1,7 @@
 import Foundation
 import BareKit
 import Security
+import CryptoKit
 
 /// Message types sent from native to the JS worklet.
 private enum NativeToWorklet: UInt8 {
@@ -233,7 +234,22 @@ public final class BareWorkletBridge: @unchecked Sendable {
             throw NSError(domain: "BareWorkletBridge", code: 4, userInfo: [NSLocalizedDescriptionKey: "worklet.bundle is not valid UTF-8"])
         }
         w.start("/worklet.bundle", source: bundleStr, encoding: String.Encoding.utf8.rawValue, arguments: nil)
-        print("[bare] Worklet started (\(bundleData.count) bytes)")
+
+        // Log bundle identity so rename-drift / stale bundles surface at runtime
+        // instead of silently running old code. Size + SHA1 pins the exact content;
+        // mtime pins which build produced it.
+        let shortSha: String = {
+            let digest = Insecure.SHA1.hash(data: bundleData)
+            return digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+        }()
+        let mtimeStr: String = {
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: bundlePath),
+                  let date = attrs[.modificationDate] as? Date else { return "?" }
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            return fmt.string(from: date)
+        }()
+        NSLog("[bare] Worklet started (%d bytes, sha1=%@, mtime=%@)", bundleData.count, shortSha, mtimeStr)
 
         // Create IPC AFTER start - pipe fds are only valid after worklet starts
         guard let bareIpc = BareIPC(worklet: w) else {
@@ -353,39 +369,20 @@ public final class BareWorkletBridge: @unchecked Sendable {
     private static let maxChunkPayload = 16_000
 
     public func sendStreamData(streamId: UInt32, channel: UInt8, data: Data) {
-        // For small frames, send directly (no chunking overhead)
-        if data.count <= Self.maxChunkPayload {
-            var payload = Data(capacity: 7 + data.count)
-            var sid = streamId.bigEndian
-            payload.append(Data(bytes: &sid, count: 4))
-            payload.append(channel)
-            // chunkInfo: totalChunks=1 (0 means single/unchunked), chunkIndex=0
-            payload.append(0) // totalChunks high byte (0 = no chunking)
-            payload.append(0) // totalChunks low byte
-            payload.append(data)
-            sendCommand(.streamData, binary: payload)
-            return
-        }
-
-        // Split large data into chunks
-        let totalChunks = (data.count + Self.maxChunkPayload - 1) / Self.maxChunkPayload
-        for i in 0..<totalChunks {
-            let offset = i * Self.maxChunkPayload
-            let end = min(offset + Self.maxChunkPayload, data.count)
-            let chunk = data[offset..<end]
-
-            var payload = Data(capacity: 9 + chunk.count)
-            var sid = streamId.bigEndian
-            payload.append(Data(bytes: &sid, count: 4))
-            payload.append(channel)
-            // Chunk header: totalChunks (UInt16 BE), chunkIndex (UInt16 BE)
-            var tc = UInt16(totalChunks).bigEndian
-            payload.append(Data(bytes: &tc, count: 2))
-            var ci = UInt16(i).bigEndian
-            payload.append(Data(bytes: &ci, count: 2))
-            payload.append(chunk)
-            sendCommand(.streamData, binary: payload)
-        }
+        // Send entire frame as one IPC message (no chunking).
+        // The worklet handles large IPC frames fine (4-byte length prefix, no size limit).
+        // Previous chunking split frames into 16KB pieces, but concurrent encoder
+        // callbacks caused chunks from different frames to interleave on the write
+        // queue — the worklet's chunk reassembly failed because a new frame's chunk 0
+        // replaced the previous frame's incomplete buffer.
+        var payload = Data(capacity: 7 + data.count)
+        var sid = streamId.bigEndian
+        payload.append(Data(bytes: &sid, count: 4))
+        payload.append(channel)
+        payload.append(0) // totalChunks high byte (0 = unchunked)
+        payload.append(0) // totalChunks low byte
+        payload.append(data)
+        sendCommand(.streamData, binary: payload)
     }
 
     public func requestStatus() {

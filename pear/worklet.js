@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v46-topic-filter-20260319'
+const WORKLET_VERSION = 'v49-fast-connect-pin-fix-20260412'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -148,6 +148,58 @@ function drainFrames () {
 let sendFrameCount = 0
 const MAX_IPC_PAYLOAD = 16000
 
+// Detect IDR/keyframes in Annex B data by inspecting the first NAL unit type.
+// Keyframes must never be dropped under backpressure — dropping a keyframe leaves
+// the decoder stuck until the next IDR (~1s), and if that next keyframe also
+// lands during backpressure the viewer freezes indefinitely.
+// H.265: VPS=32, SPS=33, PPS=34, IDR_W_RADL=19, IDR_N_LP=20
+// H.264: SPS=7, PPS=8, IDR=5
+function isAnnexBKeyframe (data) {
+  if (!data || data.length < 5) return false
+  let nalByte = -1
+  if (data[0] === 0 && data[1] === 0 && data[2] === 0 && data[3] === 1) {
+    nalByte = data[4]
+  } else if (data[0] === 0 && data[1] === 0 && data[2] === 1) {
+    nalByte = data[3]
+  }
+  if (nalByte < 0) return false
+  const h265type = (nalByte >> 1) & 0x3F
+  const h264type = nalByte & 0x1F
+  return (h265type >= 32 && h265type <= 34) || h265type === 19 || h265type === 20 ||
+         h264type === 5 || h264type === 7 || h264type === 8
+}
+
+function _isPublicRoutableHost (host) {
+  if (!host || typeof host !== 'string') return false
+  const h = host.trim().toLowerCase()
+  if (!h || h === 'localhost' || h.endsWith('.local')) return false
+
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) {
+    const parts = h.split('.').map(n => Number(n))
+    if (parts.some(n => Number.isNaN(n) || n < 0 || n > 255)) return false
+    const [a, b] = parts
+    if (a === 0 || a === 10 || a === 127) return false
+    if (a === 169 && b === 254) return false
+    if (a === 172 && b >= 16 && b <= 31) return false
+    if (a === 192 && b === 168) return false
+    if (a === 192 && b === 0) return false
+    if (a === 100 && b >= 64 && b <= 127) return false
+    if (a === 198 && (b === 18 || b === 19)) return false
+    if (a >= 224) return false
+    return true
+  }
+
+  const v6 = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h
+  if (v6.includes(':')) {
+    if (v6 === '::' || v6 === '::1') return false
+    if (v6.startsWith('fe80:')) return false
+    if (v6.startsWith('fc') || v6.startsWith('fd')) return false
+    return true
+  }
+
+  return true
+}
+
 function sendFrame (type, jsonPayload, binaryPayload) {
   if (!ipcPipe) return
 
@@ -155,19 +207,23 @@ function sendFrame (type, jsonPayload, binaryPayload) {
   // Without this, each sendFrame call allocates jsonBuf + payload Buffers
   // even if _writeIpcFrame would drop them. At 43K calls/sec during burst
   // delivery (from StreamMux phantom frames), this wastes ~200MB/sec of V8 heap.
+  //
+  // Keyframes on ch0 (video) are exempt from the drop — losing a keyframe
+  // leaves the viewer's decoder frozen until the next IDR (~1s later) and if
+  // that IDR also arrives during backpressure the viewer stays frozen forever.
   if (type === MSG.STREAM_DATA_OUT && ipcWriteLen > MAX_IPC_WRITE_BUFFER) {
-    ipcDropCount++
-    if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
-      sendLog('sendFrame: early drop, writeBuf=' + ipcWriteLen + ' dropped=' + ipcDropCount)
-    }
-    if (!streamsPaused && typeof worklet !== 'undefined') {
-      streamsPaused = true
-      for (const [, peer] of worklet.peers) {
-        try { peer.stream.pause() } catch (e) {}
+    const isCh0Keyframe = jsonPayload && jsonPayload.channel === 0 &&
+                          binaryPayload && isAnnexBKeyframe(binaryPayload)
+    if (!isCh0Keyframe) {
+      ipcDropCount++
+      if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
+        sendLog('sendFrame: early drop, writeBuf=' + ipcWriteLen + ' dropped=' + ipcDropCount)
       }
-      sendLog('sendFrame: paused peer streams (backpressure)')
+      // Don't pause peer streams — pause() stops the readable side which freezes
+      // ALL incoming data (video + control). Input still works (writable side)
+      // but video dies. Let UDX handle its own flow control instead.
+      return
     }
-    return
   }
 
   let payload
@@ -201,19 +257,17 @@ function sendFrame (type, jsonPayload, binaryPayload) {
     // Estimate total IPC size for all chunks to check backpressure atomically
     const estimatedTotalSize = totalChunks * (4 + 1 + 2 + 80 + chunkDataMax) // 4=header, 80~json overhead
     if (ipcWriteLen + estimatedTotalSize > MAX_IPC_WRITE_BUFFER && type === MSG.STREAM_DATA_OUT) {
-      // Drop the ENTIRE frame — never send partial chunks
-      ipcDropCount++
-      if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
-        sendLog('ipc-write: dropping entire chunked frame, writeBuf=' + ipcWriteLen + ' frameSize=' + estimatedTotalSize + ' chunks=' + totalChunks + ' dropped=' + ipcDropCount)
-      }
-      if (!streamsPaused && typeof worklet !== 'undefined') {
-        streamsPaused = true
-        for (const [, peer] of worklet.peers) {
-          try { peer.stream.pause() } catch (e) {}
+      // Ch0 keyframes are exempt — see note in the early-drop branch above.
+      const isCh0Keyframe = jsonPayload && jsonPayload.channel === 0 &&
+                            isAnnexBKeyframe(binaryPayload)
+      if (!isCh0Keyframe) {
+        // Drop the ENTIRE frame — never send partial chunks
+        ipcDropCount++
+        if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
+          sendLog('ipc-write: dropping entire chunked frame, writeBuf=' + ipcWriteLen + ' frameSize=' + estimatedTotalSize + ' chunks=' + totalChunks + ' dropped=' + ipcDropCount)
         }
-        sendLog('ipc-write: paused peer streams (backpressure)')
+        return
       }
-      return
     }
 
     for (let i = 0; i < totalChunks; i++) {
@@ -256,9 +310,11 @@ let ipcWriteChunks = []
 let ipcWriteLen = 0
 let ipcDraining = false
 let ipcDropCount = 0
-let streamsPaused = false
-const MAX_IPC_WRITE_BUFFER = 500000  // 500KB — lower threshold to trigger backpressure sooner
-const IPC_RESUME_THRESHOLD = 100000  // 100KB — resume streams when buffer drains
+// 2MB matches BareWorkletBridge.maxPendingWriteBytes on the Swift side and
+// gives headroom for 4–5 in-flight chunked keyframes at high resolutions.
+// A single chunked IDR at 3440×1440 can be 300–500KB; a 500KB threshold gets
+// blown by one keyframe alone, which is what caused the viewer freeze.
+const MAX_IPC_WRITE_BUFFER = 2000000
 
 function _writeIpcFrame (payload, forceWrite) {
   // Drop video data when write buffer is too large to prevent jetsam kill.
@@ -272,14 +328,6 @@ function _writeIpcFrame (payload, forceWrite) {
       ipcDropCount++
       if (ipcDropCount <= 10 || ipcDropCount % 100 === 0) {
         sendLog('ipc-write: dropping video frame, writeBuf=' + ipcWriteLen + ' dropped=' + ipcDropCount)
-      }
-      // Apply backpressure: pause all peer streams to stop UDX from buffering
-      if (!streamsPaused && typeof worklet !== 'undefined') {
-        streamsPaused = true
-        for (const [, peer] of worklet.peers) {
-          try { peer.stream.pause() } catch (e) {}
-        }
-        sendLog('ipc-write: paused peer streams (backpressure)')
       }
       return
     }
@@ -319,7 +367,6 @@ function _writeIpcFrame (payload, forceWrite) {
 function _drainIpcWriteBuffer () {
   ipcDraining = false
   if (ipcWriteChunks.length === 0) {
-    _resumeStreamsIfNeeded()
     return
   }
 
@@ -338,25 +385,31 @@ function _drainIpcWriteBuffer () {
     ipcDraining = true
     ipcPipe.once('drain', _drainIpcWriteBuffer)
   } else {
-    _resumeStreamsIfNeeded()
-  }
-}
-
-function _resumeStreamsIfNeeded () {
-  if (streamsPaused && ipcWriteLen < IPC_RESUME_THRESHOLD && typeof worklet !== 'undefined') {
-    streamsPaused = false
-    for (const [, peer] of worklet.peers) {
-      try { peer.stream.resume() } catch (e) {}
-    }
-    sendLog('ipc-write: resumed peer streams')
+    // drain complete
   }
 }
 
 function sendLog (msg) {
   sendFrame(MSG.LOG, { message: msg })
 }
+// Expose sendLog globally so patched node_modules (connect.js) can log too
+if (typeof global !== 'undefined') global.__peariscopeLog = sendLog
 
+// Connection phase wall-clock timing. Helps diagnose WAN slow-connect by
+// showing which phase (searching / connecting / holepunching / relay) eats
+// the most time. Resets on every new 'starting' so it tracks one attempt.
+let connectStartTime = 0
+let lastStatusTime = 0
 function sendConnectionStatus (phase, detail) {
+  const now = typeof Date !== 'undefined' && typeof Date.now === 'function' ? Date.now() : 0
+  if (phase === 'starting' || connectStartTime === 0) {
+    connectStartTime = now
+    lastStatusTime = 0
+  }
+  const totalMs = connectStartTime > 0 ? (now - connectStartTime) : 0
+  const deltaMs = lastStatusTime > 0 ? (now - lastStatusTime) : 0
+  lastStatusTime = now
+  sendLog('connect-phase phase=' + phase + ' detail="' + detail + '" total=' + totalMs + 'ms delta=' + deltaMs + 'ms')
   sendFrame(MSG.CONNECTION_STATUS, { phase, detail })
 }
 
@@ -389,9 +442,21 @@ class PeariscopeWorklet {
     this.maxPeers = 10
     this._cachedNodes = null
     this._cachedKeyPair = null
+    this._cachedKeyPairResolve = null
+    this._cachedKeyPairPromise = null
     this._dhtNodeReportInterval = null
     this._warmupInterval = null
     this._nextStreamId = 1
+    this._proactiveRelayLogged = false
+    this._verifiedRelayPool = []
+    // _bootstrapReady: resolved after DHT bootstrap (swarm.listen). Enough
+    // for viewers to start looking up topics — no NAT probe needed.
+    this._bootstrapReadyResolve = null
+    this._bootstrapReady = new Promise(r => { this._bootstrapReadyResolve = r })
+    // _ready: resolved after bootstrap + NAT probe + firewalled override.
+    // Hosts must await this before serving (need FIREWALL.OPEN in handshakes).
+    this._readyResolve = null
+    this._ready = new Promise(r => { this._readyResolve = r })
   }
 
   setCachedKeyPair (publicKeyHex, secretKeyHex) {
@@ -404,6 +469,11 @@ class PeariscopeWorklet {
     } catch (e) {
       sendLog('Invalid cached keypair: ' + (e.message || e))
       this._cachedKeyPair = null
+    }
+    // Resolve the pending promise if start() is waiting for the cached keypair
+    if (this._cachedKeyPairResolve) {
+      this._cachedKeyPairResolve()
+      this._cachedKeyPairResolve = null
     }
   }
 
@@ -420,7 +490,7 @@ class PeariscopeWorklet {
     if (!this.swarm || !this.swarm.dht || !nodes || nodes.length === 0) return
     let added = 0
     for (const node of nodes) {
-      if (node.host && node.port && node.host !== '127.0.0.1' && node.host !== '::1') {
+      if (node.host && node.port && _isPublicRoutableHost(node.host)) {
         try {
           this.swarm.dht.addNode({ host: node.host, port: node.port })
           added++
@@ -438,11 +508,13 @@ class PeariscopeWorklet {
       try {
         const table = this.swarm.dht.toArray()
         if (table && table.length > 0) {
-          const nodes = table.map(n => ({
-            host: n.host,
-            port: n.port,
-            lastSeen: Date.now()
-          }))
+          const nodes = table
+            .filter(n => _isPublicRoutableHost(n.host))
+            .map(n => ({
+              host: n.host,
+              port: n.port,
+              lastSeen: Date.now()
+            }))
           sendFrame(MSG.DHT_NODES, { nodes })
         }
       } catch (e) {
@@ -454,6 +526,25 @@ class PeariscopeWorklet {
   async start () {
     if (!crypto || !Hyperswarm) {
       throw new Error('Required modules not loaded (crypto=' + !!crypto + ', Hyperswarm=' + !!Hyperswarm + ')')
+    }
+
+    // Wait briefly for the cached keypair IPC message to arrive before proceeding.
+    // setCachedKeyPair() is called from an IPC message that may arrive after start()
+    // has begun executing. Without this wait, start() always generates a fresh keypair.
+    if (!this._cachedKeyPair) {
+      sendLog('Waiting up to 200ms for cached keypair from native...')
+      this._cachedKeyPairPromise = new Promise(resolve => {
+        this._cachedKeyPairResolve = resolve
+      })
+      const timeout = new Promise(resolve => setTimeout(resolve, 200))
+      await Promise.race([this._cachedKeyPairPromise, timeout])
+      this._cachedKeyPairResolve = null
+      this._cachedKeyPairPromise = null
+      if (this._cachedKeyPair) {
+        sendLog('Cached keypair arrived during wait')
+      } else {
+        sendLog('No cached keypair received within 500ms, generating fresh')
+      }
     }
 
     // Reuse cached keypair if available — same identity = same NAT mappings on CGNAT
@@ -472,11 +563,8 @@ class PeariscopeWorklet {
       })
     }
 
-    // Build DHT with ephemeral:false to be immediately persistent.
     const dhtOpts = {
-      ephemeral: false,
-      port: 49800 + Math.floor(Math.random() * 1000),
-      randomPunchInterval: 2000
+      port: 49800 + Math.floor(Math.random() * 1000)
     }
 
     // Use Pear sidecar's DHT config if available (running inside pear-runtime).
@@ -504,7 +592,7 @@ class PeariscopeWorklet {
     // speeding up lookups without replacing the reliable default bootstrap.
     if (this._cachedNodes && this._cachedNodes.length > 0) {
       const routingNodes = this._cachedNodes
-        .filter(n => n.host && n.port && n.host !== '127.0.0.1' && n.host !== '::1' && n.host !== 'localhost')
+        .filter(n => n.host && n.port && _isPublicRoutableHost(n.host))
         .slice(0, 50)
         .map(n => ({ host: n.host, port: n.port }))
       if (routingNodes.length > 0) {
@@ -522,7 +610,7 @@ class PeariscopeWorklet {
     sendLog('DHT bootstrap: ' + (dhtOpts.bootstrap ? dhtOpts.bootstrap.length + ' custom' : 'defaults') + ', routing nodes: ' + (dhtOpts.nodes ? dhtOpts.nodes.length : 0))
 
     const dht = new HyperDHT(dhtOpts)
-    sendLog('DHT created: ephemeral=false port=' + dhtOpts.port)
+    sendLog('DHT created: port=' + dhtOpts.port)
 
     const swarmOpts = {
       keyPair: this.keyPair,
@@ -530,41 +618,36 @@ class PeariscopeWorklet {
     }
 
     // relayThrough: when direct holepunch fails (symmetric NAT/CGNAT),
-    // Hyperswarm relays traffic through a DHT node. Without this, connections
-    // between two symmetric NAT peers silently fail. Keet uses relays.
-    // Must return a public key (Buffer) of a node to relay through, or null.
+    // Hyperswarm relays traffic through a DHT node via blind-relay.
+    // CRITICAL: the relay node must have an active HyperDHT server (via
+    // createServer().listen()) — otherwise dht.connect(relayPubKey) fails
+    // with PEER_NOT_FOUND. Random routing table nodes DON'T have servers.
+    // We pre-verify relay candidates during warmup (_warmRelayPool) and
+    // only return nodes we've confirmed are connectable.
     swarmOpts.relayThrough = (force) => {
       if (!this.swarm || !this.swarm.dht) return null
-      // Only relay when forced (symmetric NAT detected) or when DHT says we're randomized
-      if (!force && !this.swarm.dht.randomized) return null
-      const nodes = this.swarm.dht.toArray()
-      if (nodes.length === 0) return null
-      // Pick a random node's public key from the routing table as relay
-      const node = nodes[Math.floor(Math.random() * nodes.length)]
-      // DHT routing table nodes have an 'id' property which is their public key
-      return node.id || null
+      const dht = this.swarm.dht
+      const shouldAllowRelay = force || dht.randomized || dht.firewalled
+      if (!shouldAllowRelay) return null
+      const pool = this._verifiedRelayPool
+      if (pool.length === 0) {
+        sendLog('relayThrough: no verified relay nodes available (pool empty)')
+        return null
+      }
+      const node = pool[Math.floor(Math.random() * pool.length)]
+      sendLog('relayThrough: force=' + force + ' firewalled=' + dht.firewalled +
+        ' randomized=' + dht.randomized + ' pool=' + pool.length +
+        ' selected=' + b4a.toString(node, 'hex').slice(0, 16))
+      return node
     }
 
     this.swarm = new Hyperswarm(swarmOpts)
 
-    // Force DHT to persistent mode immediately.
-    // The constructor's ephemeral:false sets _forcePersistent=true and _stableTicks=0,
-    // which triggers _updateNetworkState() during bootstrap. BUT if the node is
-    // firewalled (common on mobile), the NAT check fails and the node stays ephemeral.
-    // For HOSTING, we need to be persistent so viewers can find us via DHT,
-    // even behind a firewall (holepunching/relay handles the actual connection).
-    // _stableTicks=0 is already handled by the constructor when ephemeral:false is set.
-    dht.ephemeral = false
-    dht.io.ephemeral = false
-    // Monkey-patch _randomPunchLimit — hardcoded to 1 in hyperdht 6.29.x, not configurable via opts.
-    // Higher limit allows more concurrent holepunch attempts for faster NAT traversal.
-    dht._randomPunchLimit = 20
-    sendLog('DHT: forced persistent, punch limit=20, interval=2000ms')
-    sendLog('relayThrough: enabled (fallback for symmetric NAT)')
+    sendLog('DHT created: port=' + dhtOpts.port + ' (stock hyperdht tuning)')
 
     this.swarm.on('connection', (stream, info) => {
       const type = info.client ? 'client' : 'server'
-      sendLog('Swarm connection: ' + type + ' remoteKey=' + (info.publicKey ? b4a.toString(info.publicKey, 'hex').slice(0, 16) : 'unknown'))
+      sendLog('Swarm connection: ' + type + ' remoteKey=' + (info.publicKey ? b4a.toString(info.publicKey, 'hex').slice(0, 16) : 'unknown') + ' relay=' + (stream.relayType || 'none'))
       this._onPeerConnection(stream, info)
     })
 
@@ -580,6 +663,25 @@ class PeariscopeWorklet {
       sendLog('Swarm BAN: ' + (peerInfo.publicKey ? b4a.toString(peerInfo.publicKey, 'hex').slice(0, 16) : 'unknown') + ' err=' + (err ? err.message : 'none'))
     })
 
+    // Monitor ALL connection attempts from the DHT level — this catches
+    // holepunch failures, relay attempts, and error codes that Hyperswarm swallows.
+    const origConnect = dht.connect.bind(dht)
+    dht.connect = (remotePublicKey, opts) => {
+      const keyHex = remotePublicKey ? b4a.toString(remotePublicKey, 'hex').slice(0, 16) : 'unknown'
+      sendLog('DHT.connect: peer=' + keyHex + ' relayThrough=' + (opts && opts.relayThrough ? 'yes' : 'no') + ' relayAddrs=' + (opts && opts.relayAddresses ? opts.relayAddresses.length : 0))
+      const conn = origConnect(remotePublicKey, opts)
+      conn.on('open', () => {
+        sendLog('DHT.connect OPEN: peer=' + keyHex + ' relay=' + (conn.relayType || 'direct'))
+      })
+      conn.on('error', (err) => {
+        sendLog('DHT.connect ERROR: peer=' + keyHex + ' code=' + (err.code || 'none') + ' msg=' + (err.message || err))
+      })
+      conn.on('close', () => {
+        sendLog('DHT.connect CLOSE: peer=' + keyHex + ' destroyed=' + conn.destroyed)
+      })
+      return conn
+    }
+
     // Inject cached nodes into DHT after construction
     if (this._cachedNodes && this._cachedNodes.length > 0) {
       this._injectCachedNodes(this._cachedNodes)
@@ -587,7 +689,20 @@ class PeariscopeWorklet {
 
     // Wait for DHT to bootstrap before signaling readiness
     await this.swarm.listen()
+
+    // Log detailed NAT/firewall state after bootstrap
+    const addr = dht.remoteAddress()
     sendLog('Hyperswarm listening (DHT bootstrapped)')
+    sendLog('NAT state: firewalled=' + dht.firewalled + ' randomized=' + dht.randomized + ' ephemeral=' + dht.ephemeral)
+    sendLog('Remote address: ' + (addr ? addr.host + ':' + addr.port : 'unknown'))
+    sendLog('DHT port: ' + dht.address().port + ' nodes: ' + dht.toArray().length)
+
+    // Signal bootstrap ready — viewers can start topic lookups immediately
+    // without waiting for the NAT probe. Only hosts need the full probe.
+    if (this._bootstrapReadyResolve) {
+      this._bootstrapReadyResolve()
+      this._bootstrapReadyResolve = null
+    }
 
     // Start periodic DHT node reporting for native caching
     this._startDhtNodeReporting()
@@ -595,14 +710,133 @@ class PeariscopeWorklet {
     try {
       const table = this.swarm.dht.toArray()
       if (table && table.length > 0) {
-        const nodes = table.map(n => ({ host: n.host, port: n.port, lastSeen: Date.now() }))
+        const nodes = table
+          .filter(n => _isPublicRoutableHost(n.host))
+          .map(n => ({ host: n.host, port: n.port, lastSeen: Date.now() }))
         sendFrame(MSG.DHT_NODES, { nodes })
         sendLog('Initial DHT report: ' + nodes.length + ' nodes')
       }
     } catch (e) {}
+
+    // Force early NAT/firewall probe. dht-rpc (index.js) only runs its first
+    // firewall check once _stableTicks counts down to 0 — STABLE_TICKS=240 at
+    // TICK_INTERVAL=5000ms = 20 minutes. That's fine for a long-lived sidecar
+    // but catastrophic for short-lived client sessions: we stay stuck at
+    // firewalled=true, which makes the holepuncher pick the wrong strategy and
+    // every DHT.connect dies to HOLEPUNCH_ABORTED at server-side HANDSHAKE_INITIAL_TIMEOUT.
+    // Kick the probe immediately and wait up to ~6s for it to settle.
+    sendLog('Forcing early NAT probe (bypassing 20-minute stableTicks)...')
+    const natDeadline = Date.now() + 3000
+    let probeAttempts = 0
+    while (dht.firewalled && Date.now() < natDeadline) {
+      probeAttempts++
+      try {
+        await dht._updateNetworkState(false)
+      } catch (e) {
+        sendLog('NAT probe error: ' + (e.message || e))
+      }
+      if (!dht.firewalled) break
+      await new Promise(r => setTimeout(r, 250))
+    }
+    sendLog('NAT probe settled: firewalled=' + dht.firewalled +
+      ' ephemeral=' + dht.ephemeral +
+      ' randomized=' + dht.randomized +
+      ' host=' + ((dht._nat && dht._nat.host) || 'null') +
+      ' port=' + ((dht._nat && dht._nat.port) || 0) +
+      ' attempts=' + probeAttempts)
+
+    // If the probe couldn't determine NAT state (firewalled=true still) but
+    // we have a valid external address, try forcing firewalled=false so the
+    // server reports FIREWALL.OPEN in handshakes. This lets CGNAT clients
+    // connect directly to our public IP without holepunching.
+    // The probe can fail even on open networks when the DHT is too fresh —
+    // _checkIfFirewalled needs verified routing nodes to send PING_NAT to,
+    // and a fresh DHT may not have enough.
+    if (dht.firewalled && dht._nat && dht._nat.host) {
+      sendLog('NAT probe inconclusive but we have external address ' + dht._nat.host + ':' + dht._nat.port + ' — forcing firewalled=false')
+      dht.firewalled = false
+      dht.io.firewalled = false
+    }
+    if (!dht.firewalled && dht._nat && dht._nat.host) {
+      const origRemoteAddress = dht.remoteAddress.bind(dht)
+      dht.remoteAddress = function () {
+        const orig = origRemoteAddress()
+        if (orig) return orig
+        if (!dht._nat.host) return null
+        if (!dht._nat.port) return null
+        return { host: dht._nat.host, port: dht._nat.port }
+      }
+      const addr = dht.remoteAddress()
+      sendLog('remoteAddress override: ' + (addr ? addr.host + ':' + addr.port : 'null'))
+    }
+
+    // Start warming the relay pool in the background
+    this._warmRelayPool(dht)
+
+    // Signal ready — connectToPeer / startHosting await this so they don't
+    // dispatch dht.connect before the DHT is bootstrapped and NAT state settled.
+    if (this._readyResolve) {
+      this._readyResolve()
+      this._readyResolve = null
+    }
+  }
+
+  _warmRelayPool (dht) {
+    // Strategy: find the HyperDHT bootstrap nodes in our routing table by
+    // their well-known IPs. Bootstrap nodes run dht.createServer().listen()
+    // (see hyperdht/bin.js) so they're guaranteed to accept dht.connect().
+    // Random routing table nodes DON'T have servers — that's why all 15
+    // candidates in the previous approach returned PEER_NOT_FOUND.
+    const BOOTSTRAP_IPS = new Set(['88.99.3.86', '142.93.90.113', '138.68.147.8'])
+    const allNodes = dht.table.toArray()
+    const bootstrapMatches = allNodes.filter(n => n.id && BOOTSTRAP_IPS.has(n.host))
+    sendLog('Relay pool: found ' + bootstrapMatches.length + ' bootstrap nodes in routing table (total=' + allNodes.length + ')')
+
+    // Also try a small sample of random nodes in case any Keet/Pear instances are in the table
+    const randomCandidates = allNodes
+      .filter(n => n.id && !BOOTSTRAP_IPS.has(n.host) && _isPublicRoutableHost(n.host))
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 5)
+    const candidates = bootstrapMatches.concat(randomCandidates)
+    if (candidates.length === 0) {
+      sendLog('Relay pool: no candidates to test')
+      return
+    }
+
+    sendLog('Relay pool: testing ' + candidates.length + ' candidates (' + bootstrapMatches.length + ' bootstrap + ' + randomCandidates.length + ' random)...')
+    let tested = 0
+    const TARGET = 3
+    for (const node of candidates) {
+      if (this._verifiedRelayPool.length >= TARGET) break
+      const keyHex = b4a.toString(node.id, 'hex').slice(0, 16)
+      const isBootstrap = BOOTSTRAP_IPS.has(node.host)
+      const conn = dht.connect(node.id)
+      const timer = setTimeout(() => { conn.destroy() }, 8000)
+      conn.on('open', () => {
+        clearTimeout(timer)
+        if (this._verifiedRelayPool.length < TARGET) {
+          this._verifiedRelayPool.push(node.id)
+          sendLog('Relay pool: verified ' + keyHex + ' ' + node.host + (isBootstrap ? ' (bootstrap)' : '') + ' (' + this._verifiedRelayPool.length + '/' + TARGET + ')')
+        }
+        conn.destroy()
+      })
+      conn.on('error', () => { clearTimeout(timer) })
+      conn.on('close', () => {
+        clearTimeout(timer)
+        tested++
+        if (tested >= candidates.length && this._verifiedRelayPool.length === 0) {
+          sendLog('Relay pool: no connectable relay nodes found in ' + tested + ' candidates')
+        }
+      })
+    }
   }
 
   async startHosting (deviceCode) {
+    // Wait for start() to finish bootstrapping + NAT probe before touching
+    // the swarm — otherwise we join topics against an uninitialized DHT.
+    if (this._ready) {
+      try { await this._ready } catch (e) {}
+    }
     if (this.isHosting) {
       sendLog('Already hosting, stopping first...')
       this._cleanupHosting()
@@ -724,8 +958,16 @@ class PeariscopeWorklet {
     this.connectToPeer(code)
   }
 
-  connectToPeer (code) {
+  async connectToPeer (code) {
     sendLog('Connecting with code: ' + code)
+
+    // Only wait for DHT bootstrap — viewer doesn't need NAT probe.
+    // The host handles FIREWALL.OPEN; viewer just needs a working DHT.
+    if (this._bootstrapReady) {
+      sendLog('Waiting for DHT bootstrap before joining topic...')
+      try { await this._bootstrapReady } catch (e) {}
+      sendLog('DHT bootstrapped; proceeding with connect')
+    }
 
     // Leave old viewer topic before joining new one — prevents stale swarm
     // connections from the previous session reconnecting to the wrong peer
@@ -733,6 +975,14 @@ class PeariscopeWorklet {
       sendLog('Leaving old viewer topic before connecting to new peer')
       this.swarm.leave(this._lastViewerTopic).catch(() => {})
     }
+    // Clean up any pending connection
+    if (this._pendingConnection) {
+      clearTimeout(this._pendingConnection.timeout)
+      clearInterval(this._pendingConnection.statusInterval)
+      this._pendingConnection.discovery.destroy().catch(() => {})
+      this._pendingConnection = null
+    }
+    this._proactiveRelayLogged = false
     // Disconnect any lingering peers from previous session
     for (const [keyHex, peer] of this.peers) {
       if (!this.isHosting || !this.connectionInfo) {
@@ -742,70 +992,78 @@ class PeariscopeWorklet {
       }
     }
 
-    this._lastViewerTopic = this._deriveTopicFromCode(code)
-    sendConnectionStatus('starting', 'Starting network...')
-    this._connectAttempt(code, 1).catch((err) => {
-      sendLog('connectToPeer error: ' + (err.message || err))
-      sendFrame(MSG.CONNECTION_FAILED, { code, reason: err.message || 'Unknown error' })
-    })
-  }
-
-  async _connectAttempt (code, attempt) {
-    const maxAttempts = 4
-    const timeoutMs = 12000 + ((attempt - 1) * 3000) // progressive: 12s, 15s, 18s, 21s
-
-    // Clean up any previous attempt's discovery handle
-    if (this._pendingConnection) {
-      clearTimeout(this._pendingConnection.timeout)
-      try { await this._pendingConnection.discovery.destroy() } catch (e) {}
-      this._pendingConnection = null
-    }
-
-    sendLog('Connection attempt ' + attempt + '/' + maxAttempts + ' for code: ' + code)
-    if (attempt > 1) {
-      sendConnectionStatus('retry', 'Retrying... (' + attempt + '/' + maxAttempts + ')')
-    }
-
     const topic = this._deriveTopicFromCode(code)
-    const discovery = this.swarm.join(topic, { server: false, client: true })
-
+    this._lastViewerTopic = topic
     this._connectionSucceeded = false
+    sendConnectionStatus('starting', 'Starting network...')
+
+    // Join the topic ONCE and let Hyperswarm handle holepunch + relay internally.
+    // Previous approach: 8 attempts × 15s, each calling swarm.leave() + discovery.destroy().
+    // Problem: leave() destroys peerInfo which has forceRelaying=true after a failed holepunch,
+    // so the relay fallback never triggers. Hyperswarm needs the peerInfo to survive across
+    // its internal retry cycle: holepunch fail → set forceRelaying → retry with relay.
+    const discovery = this.swarm.join(topic, { server: false, client: true })
     sendConnectionStatus('searching', 'Searching for host...')
 
-    // Non-blocking: log when DHT lookup and swarm flush complete
     discovery.flushed().then(() => {
-      sendLog('DHT lookup flushed for code: ' + code + ' (attempt ' + attempt + ')')
+      if (this._connectionSucceeded) return
+      sendLog('DHT lookup flushed for code: ' + code)
       sendConnectionStatus('connecting', 'Connecting to host...')
     }).catch((err) => {
       sendLog('DHT lookup flush error: ' + (err.message || err))
     })
 
     this.swarm.flush().then(() => {
-      sendLog('Swarm flush complete for attempt ' + attempt)
+      if (this._connectionSucceeded) return
+      sendLog('Swarm flush complete (all connection attempts dispatched)')
     }).catch(() => {})
 
-    // Timeout covers the entire process: DHT lookup + holepunch + relay
+    // Periodic status logging so we can see holepunch/relay progress
+    const startTime = Date.now()
+    const statusInterval = setInterval(() => {
+      if (this._connectionSucceeded) {
+        clearInterval(statusInterval)
+        return
+      }
+      const elapsed = Math.round((Date.now() - startTime) / 1000)
+      const swarmInfo = {
+        connections: this.swarm.connections.size,
+        peers: this.swarm.peers.size,
+        connecting: this.swarm.connecting || 0,
+        firewalled: this.swarm.dht ? this.swarm.dht.firewalled : '?',
+        randomized: this.swarm.dht ? this.swarm.dht.randomized : '?'
+      }
+      sendLog('Connection status @' + elapsed + 's: ' + JSON.stringify(swarmInfo))
+      // Update UI with progress
+      if (swarmInfo.connecting > 0) {
+        if (elapsed >= 8) {
+          sendConnectionStatus('connecting', 'Trying direct + relay... (' + elapsed + 's)')
+        } else {
+          sendConnectionStatus('connecting', 'Holepunching... (' + elapsed + 's)')
+        }
+      }
+    }, 5000)
+
+    // Single overall timeout — long enough for holepunch + relay fallback.
+    // Holepunch can take 10-30s, relay setup adds another 10-20s.
+    const OVERALL_TIMEOUT = 90000 // 90 seconds
     const timeout = setTimeout(() => {
       if (this._connectionSucceeded) return
+      clearInterval(statusInterval)
 
-      // Leave the topic before retrying so we get a fresh lookup
+      sendLog('Connection timed out after ' + (OVERALL_TIMEOUT / 1000) + 's')
       this.swarm.leave(topic).catch(() => {})
       discovery.destroy().catch(() => {})
 
-      if (attempt < maxAttempts) {
-        sendLog('Attempt ' + attempt + ' timed out, retrying...')
-        sendConnectionStatus('timeout', 'Attempt ' + attempt + ' timed out, retrying...')
-        this._connectAttempt(code, attempt + 1)
-      } else {
-        sendFrame(MSG.CONNECTION_FAILED, {
-          code,
-          reason: 'Connection timed out after ' + maxAttempts + ' attempts'
-        })
-        this._pendingConnection = null
-      }
-    }, timeoutMs)
+      sendFrame(MSG.CONNECTION_FAILED, {
+        code,
+        reason: 'Connection timed out after ' + (OVERALL_TIMEOUT / 1000) + 's'
+      })
+      this._pendingConnection = null
+      this._proactiveRelayLogged = false
+    }, OVERALL_TIMEOUT)
 
-    this._pendingConnection = { code, timeout, discovery }
+    this._pendingConnection = { code, timeout, statusInterval, discovery, startedAt: Date.now() }
   }
 
   disconnectAllPeers () {
@@ -819,9 +1077,11 @@ class PeariscopeWorklet {
     // Cancel pending connection attempts
     if (this._pendingConnection) {
       clearTimeout(this._pendingConnection.timeout)
+      if (this._pendingConnection.statusInterval) clearInterval(this._pendingConnection.statusInterval)
       this._pendingConnection.discovery.destroy().catch(() => {})
       this._pendingConnection = null
     }
+    this._proactiveRelayLogged = false
     // Leave the viewer topic so swarm doesn't reconnect
     if (this._lastViewerTopic) {
       this.swarm.leave(this._lastViewerTopic).catch(() => {})
@@ -841,6 +1101,7 @@ class PeariscopeWorklet {
     // Leave the swarm topic so the host doesn't reconnect to us
     if (this._pendingConnection) {
       clearTimeout(this._pendingConnection.timeout)
+      if (this._pendingConnection.statusInterval) clearInterval(this._pendingConnection.statusInterval)
       this._pendingConnection.discovery.destroy().catch(() => {})
       this._pendingConnection = null
     }
@@ -853,12 +1114,17 @@ class PeariscopeWorklet {
   }
 
   forwardStreamData (streamId, channel, data) {
+    if (channel === 2) {
+      sendLog('fwd-ctrl: sid=' + streamId + ' ch=2 len=' + data.length + ' peers=' + this.peers.size)
+    }
     for (const [, peer] of this.peers) {
       if (peer.streamId === streamId) {
+        if (channel === 2) sendLog('fwd-ctrl: matched peer sid=' + streamId + ', sending via mux')
         peer.mux.send(channel, data)
         return
       }
     }
+    if (channel === 2) sendLog('fwd-ctrl: NO peer found for sid=' + streamId)
   }
 
   getStatus () {
@@ -923,29 +1189,7 @@ class PeariscopeWorklet {
       ch0total++
       ch0sinceLast++
 
-      // Detect keyframes by inspecting first NAL unit type after Annex B start code.
-      // Keyframes MUST never be dropped — missing keyframes cause blocky corruption
-      // and frozen regions until the next keyframe arrives (~1 second later).
-      // H.265: VPS NAL type = 32 (0x40 >> 1), SPS = 33, PPS = 34, IDR = 19/20
-      // H.264: SPS NAL type = 7 (0x67 & 0x1F), IDR = 5
-      let isKeyframe = false
-      if (data.length >= 5) {
-        // Find first NAL unit after start code (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
-        let nalByte = -1
-        if (data[0] === 0 && data[1] === 0 && data[2] === 0 && data[3] === 1) {
-          nalByte = data[4]
-        } else if (data[0] === 0 && data[1] === 0 && data[2] === 1) {
-          nalByte = data[3]
-        }
-        if (nalByte >= 0) {
-          const h265type = (nalByte >> 1) & 0x3F
-          const h264type = nalByte & 0x1F
-          // H.265 VPS=32, SPS=33, PPS=34, IDR_W_RADL=19, IDR_N_LP=20
-          // H.264 SPS=7, PPS=8, IDR=5
-          isKeyframe = (h265type >= 32 && h265type <= 34) || h265type === 19 || h265type === 20 ||
-                       h264type === 5 || h264type === 7 || h264type === 8
-        }
-      }
+      const isKeyframe = isAnnexBKeyframe(data)
 
       // Counter gate: always skip if we haven't seen enough frames since last forward
       // BUT never skip keyframes
@@ -976,6 +1220,7 @@ class PeariscopeWorklet {
     })
 
     mux.onChannel(2, (data) => {
+      sendLog('ch2 ctrl recv: ' + data.length + 'B sid=' + streamId)
       sendFrame(MSG.STREAM_DATA_OUT, { streamId, channel: 2 }, data)
     })
 
@@ -1019,6 +1264,7 @@ class PeariscopeWorklet {
 
     if (this._pendingConnection) {
       clearTimeout(this._pendingConnection.timeout)
+      if (this._pendingConnection.statusInterval) clearInterval(this._pendingConnection.statusInterval)
       this._connectionSucceeded = true
       if (stream.relayType) {
         sendConnectionStatus('relay', 'Connected via relay')
@@ -1030,6 +1276,7 @@ class PeariscopeWorklet {
         streamId
       })
       this._pendingConnection = null
+      this._proactiveRelayLogged = false
     }
 
     sendFrame(MSG.PEER_CONNECTED, {
@@ -1302,7 +1549,7 @@ function handleFrame (frame) {
     case MSG.CONNECT_TO_PEER: {
       try {
         const json = JSON.parse(rest.toString())
-        worklet.connectToPeer(json.code)
+        worklet.connectToPeer(json.code).catch((e) => sendLog('connectToPeer error: ' + (e.message || e)))
       } catch (e) {
         sendLog('CONNECT_TO_PEER: JSON parse error: ' + (e.message || e))
       }

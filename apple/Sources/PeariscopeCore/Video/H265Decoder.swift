@@ -24,6 +24,7 @@ public final class H265Decoder: @unchecked Sendable {
     public func flushQueue() {
         pendingLock.lock()
         queuedBlocks = 0
+        queuedBlocksFullSince = 0
         pendingLock.unlock()
         NSLog("[h265] Frame queue flushed")
     }
@@ -36,6 +37,7 @@ public final class H265Decoder: @unchecked Sendable {
             self.recreateSession()
             self.pendingLock.lock()
             self.queuedBlocks = 0
+            self.queuedBlocksFullSince = 0
             self.pendingLock.unlock()
         }
     }
@@ -44,6 +46,11 @@ public final class H265Decoder: @unchecked Sendable {
     private let pendingLock = NSLock()
     private var queuedBlocks: Int = 0
     private static let maxQueuedBlocks = 2
+
+    /// Track when queuedBlocks last hit max — reset if stuck too long.
+    /// Mirrors the safety net in H264 Decoder.swift; without this, a hung VT
+    /// session leaves queuedBlocks at max forever and video freezes permanently.
+    private var queuedBlocksFullSince: CFAbsoluteTime = 0
 
     /// Time gate: drop frames arriving faster than display refresh to prevent VT
     /// from allocating hundreds of pixel buffers during network burst delivery.
@@ -102,9 +109,22 @@ public final class H265Decoder: @unchecked Sendable {
         }
         lastAcceptTime = now
         if queuedBlocks >= Self.maxQueuedBlocks {
-            queueFullDrops += 1
-            pendingLock.unlock()
-            return
+            // If stuck at max for >2 seconds, VT is probably hung (session
+            // corruption, pool exhaustion) — reset the counter to unblock.
+            // Matches the H264 safety net in Decoder.swift.
+            if queuedBlocksFullSince == 0 {
+                queuedBlocksFullSince = now
+            } else if now - queuedBlocksFullSince > 2.0 {
+                NSLog("[h265] queuedBlocks stuck at %d for >2s, resetting", queuedBlocks)
+                queuedBlocks = 0
+                queuedBlocksFullSince = 0
+            } else {
+                queueFullDrops += 1
+                pendingLock.unlock()
+                return
+            }
+        } else {
+            queuedBlocksFullSince = 0
         }
         queuedBlocks += 1
         pendingLock.unlock()
@@ -156,7 +176,19 @@ public final class H265Decoder: @unchecked Sendable {
                 }
             case 0...9, 16...21:
                 let isIDR = nalType >= 16 && nalType <= 21
-                if isIDR { NSLog("[h265] IDR (%d bytes), session=%@", nal.count, session != nil ? "yes" : "no") }
+                if isIDR {
+                    NSLog("[h265] IDR (%d bytes), session=%@", nal.count, session != nil ? "yes" : "no")
+                    // Recreate session on IDR after sustained decode errors.
+                    // MUST run here (outside the VT output handler) — recreating
+                    // from inside the handler deadlocks the serial decoder queue
+                    // because VTDecompressionSessionInvalidate on a session that's
+                    // mid-dispatch is undefined behavior per Apple's docs.
+                    if consecutiveDecodeErrors > 3 {
+                        NSLog("[h265] Recreating session after %d consecutive errors", consecutiveDecodeErrors)
+                        consecutiveDecodeErrors = 0
+                        recreateSession()
+                    }
+                }
                 decodeNALUnit(nal)
             default:
                 break
@@ -315,6 +347,7 @@ public final class H265Decoder: @unchecked Sendable {
         // keeping VT's pixel buffer pool to 1-2 buffers and preventing the
         // multi-GB memory spike from unbounded async pool growth.
         var infoFlags = VTDecodeInfoFlags()
+        let decodeStart = CFAbsoluteTimeGetCurrent()
         VTDecompressionSessionDecodeFrame(
             session,
             sampleBuffer: sampleBuffer,
@@ -333,12 +366,10 @@ public final class H265Decoder: @unchecked Sendable {
                             NSLog("[h265] Consecutive decode errors >= 5, requesting codec fallback")
                             self?.onCodecFallbackNeeded?()
                         }
-                        let badDataErr: OSStatus = -12909  // kVTVideoDecoderBadDataErr
-                        let sessionInvalid: OSStatus = -12903  // kVTInvalidSessionErr
-                        if status == badDataErr || status == sessionInvalid {
-                            NSLog("[h265] Unrecoverable VT error %d — recreating session", status)
-                            self?.recreateSession()
-                        }
+                        // Session recreation must NOT be called from inside the VT
+                        // output handler — it deadlocks the serial decoder queue.
+                        // _decode() handles recreation on the next IDR instead,
+                        // matching H264Decoder's pattern.
                     }
                     return
                 }
@@ -354,6 +385,15 @@ public final class H265Decoder: @unchecked Sendable {
         // Without this, VT on iOS allocates a new pool buffer per frame (~7.4MB at 3440x1440),
         // consuming ~2.7GB in seconds at 60fps.
         VTDecompressionSessionWaitForAsynchronousFrames(session)
+
+        // Safety net: if a single decode took >500ms, VT is probably wedged.
+        // Recreate the session here (outside the output handler) to unstick it
+        // before the next frame lands on the serial queue.
+        let elapsed = CFAbsoluteTimeGetCurrent() - decodeStart
+        if elapsed > 0.5 {
+            NSLog("[h265] SLOW decode: %.1fms — recreating session", elapsed * 1000)
+            recreateSession()
+        }
     }
 
     /// Parse Annex B byte stream into individual NAL units (without start codes).
