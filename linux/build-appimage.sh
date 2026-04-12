@@ -51,6 +51,13 @@ export QML_SOURCES_PATHS="$PROJECT_DIR/src/qml"
 export EXTRA_QT_PLUGINS="xcbglintegrations"
 export LD_LIBRARY_PATH="/usr/lib64:${LD_LIBRARY_PATH:-}"
 export OUTPUT="$OUTPUT_DIR/Peariscope-x86_64.AppImage"
+# Skip strip: the strip bundled in linuxdeploy can't read .relr.dyn sections
+# produced by modern (Fedora 40+) binutils, so every strip call errors out
+# and linuxdeploy aborts. The libraries are already reasonably small.
+export NO_STRIP=1
+# appimagetool can't auto-detect arch when the AppDir contains mixed
+# noarch/data files alongside ELF binaries — set explicitly.
+export ARCH=x86_64
 
 cd "$BUILD_DIR"
 /home/jb/linuxdeploy-x86_64.AppImage \
