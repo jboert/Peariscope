@@ -12,7 +12,7 @@ import Security
 public final class HostSession: ObservableObject {
     @Published public var isActive = false
     @Published public var fps: Double = 0
-    @Published public var bitrate: Int = 12_000_000
+    @Published public var bitrate: Int = 30_000_000
     @Published public var selectedDisplay: SCDisplay?
     @Published public var availableDisplays: [SCDisplay] = []
     @Published public var hasAccessibilityPermission = false
