@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v48-proactive-relay-20260411'
+const WORKLET_VERSION = 'v49-fast-connect-pin-fix-20260412'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -741,24 +741,22 @@ class PeariscopeWorklet {
     // The probe can fail even on open networks when the DHT is too fresh —
     // _checkIfFirewalled needs verified routing nodes to send PING_NAT to,
     // and a fresh DHT may not have enough.
-    // Continue probing in the background — the initial 6s may not be enough
-    // on networks where the DHT needs more time to verify routing nodes.
-    // When firewalled flips to false, the server handshake automatically
-    // reports FIREWALL.OPEN and clients can connect directly.
-    if (dht.firewalled) {
-      sendLog('Continuing NAT probe in background (checking every 5s)...')
-      const bgProbeInterval = setInterval(() => {
-        if (!dht.firewalled) {
-          clearInterval(bgProbeInterval)
-          const addr = dht.remoteAddress()
-          sendLog('Background NAT probe succeeded: firewalled=false remoteAddress=' + (addr ? addr.host + ':' + addr.port : 'null'))
-          return
-        }
-        dht._updateNetworkState(false).catch(() => {})
-      }, 5000)
-      // Stop after 2 minutes — if it hasn't flipped by then, the network
-      // genuinely doesn't support inbound UDP (CGNAT etc.)
-      setTimeout(() => clearInterval(bgProbeInterval), 120000)
+    if (dht.firewalled && dht._nat && dht._nat.host) {
+      sendLog('NAT probe inconclusive but we have external address ' + dht._nat.host + ':' + dht._nat.port + ' — forcing firewalled=false')
+      dht.firewalled = false
+      dht.io.firewalled = false
+    }
+    if (!dht.firewalled && dht._nat && dht._nat.host) {
+      const origRemoteAddress = dht.remoteAddress.bind(dht)
+      dht.remoteAddress = function () {
+        const orig = origRemoteAddress()
+        if (orig) return orig
+        if (!dht._nat.host) return null
+        if (!dht._nat.port) return null
+        return { host: dht._nat.host, port: dht._nat.port }
+      }
+      const addr = dht.remoteAddress()
+      sendLog('remoteAddress override: ' + (addr ? addr.host + ':' + addr.port : 'null'))
     }
 
     // Start warming the relay pool in the background
