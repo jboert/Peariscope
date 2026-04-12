@@ -17,6 +17,12 @@ struct IOSViewerView: View {
     @FocusState private var isInputFocused: Bool
     @State private var showShortcuts = false
     @State private var activeModifiers: InputModifiers = []
+    @State private var viewerShareURL: IdentifiedURL?
+    private static let shareTsFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f
+    }()
 
     init(networkManager: NetworkManager, isInViewerMode: Binding<Bool>) {
         self.networkManager = networkManager
@@ -138,6 +144,31 @@ struct IOSViewerView: View {
                     }
 
                     Spacer()
+
+                    // Share log button
+                    HStack {
+                        Button {
+                            let log = CrashLog.read() ?? viewerSession.diagnosticLines.joined(separator: "\n")
+                            let ts = Self.shareTsFmt.string(from: Date())
+                            let url = FileManager.default.temporaryDirectory
+                                .appendingPathComponent("peariscope-\(ts).log")
+                            do {
+                                try log.write(to: url, atomically: true, encoding: .utf8)
+                                viewerShareURL = IdentifiedURL(url: url)
+                            } catch {}
+                        } label: {
+                            Label("Share log", systemImage: "square.and.arrow.up")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .sheet(item: $viewerShareURL) { wrapped in
+                        ShareSheet(items: [wrapped.url])
+                    }
 
                     // Diagnostic log for debugging video decode issues
                     ScrollViewReader { proxy in

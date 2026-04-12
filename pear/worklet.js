@@ -392,6 +392,8 @@ function _drainIpcWriteBuffer () {
 function sendLog (msg) {
   sendFrame(MSG.LOG, { message: msg })
 }
+// Expose sendLog globally so patched node_modules (connect.js) can log too
+if (typeof global !== 'undefined') global.__peariscopeLog = sendLog
 
 // Connection phase wall-clock timing. Helps diagnose WAN slow-connect by
 // showing which phase (searching / connecting / holepunching / relay) eats
@@ -440,10 +442,17 @@ class PeariscopeWorklet {
     this.maxPeers = 10
     this._cachedNodes = null
     this._cachedKeyPair = null
+    this._cachedKeyPairResolve = null
+    this._cachedKeyPairPromise = null
     this._dhtNodeReportInterval = null
     this._warmupInterval = null
     this._nextStreamId = 1
     this._proactiveRelayLogged = false
+    this._verifiedRelayPool = []
+    // Resolved once start() has finished bootstrapping the DHT AND completed
+    // the initial firewall probe. connectToPeer/startHosting must await this.
+    this._readyResolve = null
+    this._ready = new Promise(r => { this._readyResolve = r })
   }
 
   setCachedKeyPair (publicKeyHex, secretKeyHex) {
@@ -456,6 +465,11 @@ class PeariscopeWorklet {
     } catch (e) {
       sendLog('Invalid cached keypair: ' + (e.message || e))
       this._cachedKeyPair = null
+    }
+    // Resolve the pending promise if start() is waiting for the cached keypair
+    if (this._cachedKeyPairResolve) {
+      this._cachedKeyPairResolve()
+      this._cachedKeyPairResolve = null
     }
   }
 
@@ -510,6 +524,25 @@ class PeariscopeWorklet {
       throw new Error('Required modules not loaded (crypto=' + !!crypto + ', Hyperswarm=' + !!Hyperswarm + ')')
     }
 
+    // Wait briefly for the cached keypair IPC message to arrive before proceeding.
+    // setCachedKeyPair() is called from an IPC message that may arrive after start()
+    // has begun executing. Without this wait, start() always generates a fresh keypair.
+    if (!this._cachedKeyPair) {
+      sendLog('Waiting up to 500ms for cached keypair from native...')
+      this._cachedKeyPairPromise = new Promise(resolve => {
+        this._cachedKeyPairResolve = resolve
+      })
+      const timeout = new Promise(resolve => setTimeout(resolve, 500))
+      await Promise.race([this._cachedKeyPairPromise, timeout])
+      this._cachedKeyPairResolve = null
+      this._cachedKeyPairPromise = null
+      if (this._cachedKeyPair) {
+        sendLog('Cached keypair arrived during wait')
+      } else {
+        sendLog('No cached keypair received within 500ms, generating fresh')
+      }
+    }
+
     // Reuse cached keypair if available — same identity = same NAT mappings on CGNAT
     if (this._cachedKeyPair && this._cachedKeyPair.publicKey.length === 32 && this._cachedKeyPair.secretKey.length === 64) {
       this.keyPair = this._cachedKeyPair
@@ -527,12 +560,7 @@ class PeariscopeWorklet {
     }
 
     const dhtOpts = {
-      ephemeral: false,
-      port: 49800 + Math.floor(Math.random() * 1000),
-      // Default randomPunchInterval is 20s with limit 1 — far too conservative for CGNAT.
-      // Random punching is critical for symmetric NAT: the holepuncher tries random ports
-      // on the remote side to find the NAT mapping. More frequent = faster connection.
-      randomPunchInterval: 2000
+      port: 49800 + Math.floor(Math.random() * 1000)
     }
 
     // Use Pear sidecar's DHT config if available (running inside pear-runtime).
@@ -578,7 +606,7 @@ class PeariscopeWorklet {
     sendLog('DHT bootstrap: ' + (dhtOpts.bootstrap ? dhtOpts.bootstrap.length + ' custom' : 'defaults') + ', routing nodes: ' + (dhtOpts.nodes ? dhtOpts.nodes.length : 0))
 
     const dht = new HyperDHT(dhtOpts)
-    sendLog('DHT created: ephemeral=false port=' + dhtOpts.port)
+    sendLog('DHT created: port=' + dhtOpts.port)
 
     const swarmOpts = {
       keyPair: this.keyPair,
@@ -586,48 +614,32 @@ class PeariscopeWorklet {
     }
 
     // relayThrough: when direct holepunch fails (symmetric NAT/CGNAT),
-    // Hyperswarm relays traffic through a DHT node. Without this, connections
-    // between two symmetric NAT peers silently hang after peer discovery.
+    // Hyperswarm relays traffic through a DHT node via blind-relay.
+    // CRITICAL: the relay node must have an active HyperDHT server (via
+    // createServer().listen()) — otherwise dht.connect(relayPubKey) fails
+    // with PEER_NOT_FOUND. Random routing table nodes DON'T have servers.
+    // We pre-verify relay candidates during warmup (_warmRelayPool) and
+    // only return nodes we've confirmed are connectable.
     swarmOpts.relayThrough = (force) => {
       if (!this.swarm || !this.swarm.dht) return null
       const dht = this.swarm.dht
-      const pending = this._pendingConnection
-      const proactiveRelay = !!(pending && !this._connectionSucceeded && (Date.now() - pending.startedAt) >= 6000)
-      const shouldAllowRelay = force || dht.randomized || dht.firewalled || proactiveRelay
+      const shouldAllowRelay = force || dht.randomized || dht.firewalled
       if (!shouldAllowRelay) return null
-      // CRITICAL: dht.toArray() strips node.id (returns only {host, port}).
-      // dht.table.toArray() returns full routing table entries with .id (public key Buffer)
-      // which is what relay needs to dht.connect(publicKey) to the relay node.
-      const nodes = dht.table.toArray()
-      if (nodes.length === 0) return null
-      const routableCandidates = nodes.filter(n => n.id && _isPublicRoutableHost(n.host))
-      const fallbackCandidates = nodes.filter(n => n.id)
-      const pool = routableCandidates.length > 0 ? routableCandidates : fallbackCandidates
-      if (pool.length === 0) return null
-      const node = pool[Math.floor(Math.random() * pool.length)]
-      if (proactiveRelay && !force && !this._proactiveRelayLogged) {
-        this._proactiveRelayLogged = true
-        sendLog('relayThrough: enabling proactive relay after direct-only grace period')
+      const pool = this._verifiedRelayPool
+      if (pool.length === 0) {
+        sendLog('relayThrough: no verified relay nodes available (pool empty)')
+        return null
       }
-      sendLog('relayThrough: force=' + force + ' firewalled=' + dht.firewalled + ' randomized=' + dht.randomized +
-        ' table=' + nodes.length + ' candidates=' + routableCandidates.length + ' fallback=' + fallbackCandidates.length)
-      return node.id || null
+      const node = pool[Math.floor(Math.random() * pool.length)]
+      sendLog('relayThrough: force=' + force + ' firewalled=' + dht.firewalled +
+        ' randomized=' + dht.randomized + ' pool=' + pool.length +
+        ' selected=' + b4a.toString(node, 'hex').slice(0, 16))
+      return node
     }
 
     this.swarm = new Hyperswarm(swarmOpts)
 
-    // Force DHT to persistent mode — needed so viewers can find us via DHT
-    // even behind a firewall (holepunching/relay handles the actual connection).
-    dht.ephemeral = false
-    dht.io.ephemeral = false
-
-    // Monkey-patch _randomPunchLimit — hardcoded to 1 in hyperdht 6.29.x.
-    // Default limit of 1 means only 1 random punch attempt at a time.
-    // On CGNAT/symmetric NAT, we need many concurrent attempts to guess
-    // the correct port mapping. Keet's sidecar avoids this because its
-    // long-running process has stable NAT mappings; we start fresh each time.
-    dht._randomPunchLimit = 20
-    sendLog('DHT created: port=' + dhtOpts.port + ' punchLimit=20 punchInterval=2000ms')
+    sendLog('DHT created: port=' + dhtOpts.port + ' (stock hyperdht tuning)')
 
     this.swarm.on('connection', (stream, info) => {
       const type = info.client ? 'client' : 'server'
@@ -694,9 +706,132 @@ class PeariscopeWorklet {
         sendLog('Initial DHT report: ' + nodes.length + ' nodes')
       }
     } catch (e) {}
+
+    // Force early NAT/firewall probe. dht-rpc (index.js) only runs its first
+    // firewall check once _stableTicks counts down to 0 — STABLE_TICKS=240 at
+    // TICK_INTERVAL=5000ms = 20 minutes. That's fine for a long-lived sidecar
+    // but catastrophic for short-lived client sessions: we stay stuck at
+    // firewalled=true, which makes the holepuncher pick the wrong strategy and
+    // every DHT.connect dies to HOLEPUNCH_ABORTED at server-side HANDSHAKE_INITIAL_TIMEOUT.
+    // Kick the probe immediately and wait up to ~6s for it to settle.
+    sendLog('Forcing early NAT probe (bypassing 20-minute stableTicks)...')
+    const natDeadline = Date.now() + 6000
+    let probeAttempts = 0
+    while (dht.firewalled && Date.now() < natDeadline) {
+      probeAttempts++
+      try {
+        await dht._updateNetworkState(false)
+      } catch (e) {
+        sendLog('NAT probe error: ' + (e.message || e))
+      }
+      if (!dht.firewalled) break
+      await new Promise(r => setTimeout(r, 500))
+    }
+    sendLog('NAT probe settled: firewalled=' + dht.firewalled +
+      ' ephemeral=' + dht.ephemeral +
+      ' randomized=' + dht.randomized +
+      ' host=' + ((dht._nat && dht._nat.host) || 'null') +
+      ' port=' + ((dht._nat && dht._nat.port) || 0) +
+      ' attempts=' + probeAttempts)
+
+    // If the probe couldn't determine NAT state (firewalled=true still) but
+    // we have a valid external address, try forcing firewalled=false so the
+    // server reports FIREWALL.OPEN in handshakes. This lets CGNAT clients
+    // connect directly to our public IP without holepunching.
+    // The probe can fail even on open networks when the DHT is too fresh —
+    // _checkIfFirewalled needs verified routing nodes to send PING_NAT to,
+    // and a fresh DHT may not have enough.
+    if (dht.firewalled && dht._nat && dht._nat.host) {
+      sendLog('NAT probe inconclusive but we have external address ' + dht._nat.host + ':' + dht._nat.port + ' — forcing firewalled=false')
+      dht.firewalled = false
+      dht.io.firewalled = false
+    }
+    // dht.remoteAddress() also checks that the server socket local port
+    // matches the NAT-observed external port (dht-rpc/index.js:208). On
+    // most home NATs they differ (no UPnP), so remoteAddress() returns null
+    // and the server handshake reports FIREWALL.UNKNOWN even though we're
+    // reachable. Override to return the observed external address directly.
+    if (!dht.firewalled && dht._nat && dht._nat.host) {
+      const origRemoteAddress = dht.remoteAddress.bind(dht)
+      dht.remoteAddress = function () {
+        const orig = origRemoteAddress()
+        if (orig) return orig
+        if (!dht._nat.host) return null
+        const serverPort = dht.io && dht.io.serverSocket ? dht.io.serverSocket.address().port : 0
+        if (!serverPort) return null
+        return { host: dht._nat.host, port: serverPort }
+      }
+      const addr = dht.remoteAddress()
+      sendLog('remoteAddress override: ' + (addr ? addr.host + ':' + addr.port : 'null'))
+    }
+
+    // Start warming the relay pool in the background
+    this._warmRelayPool(dht)
+
+    // Signal ready — connectToPeer / startHosting await this so they don't
+    // dispatch dht.connect before the DHT is bootstrapped and NAT state settled.
+    if (this._readyResolve) {
+      this._readyResolve()
+      this._readyResolve = null
+    }
+  }
+
+  _warmRelayPool (dht) {
+    // Strategy: find the HyperDHT bootstrap nodes in our routing table by
+    // their well-known IPs. Bootstrap nodes run dht.createServer().listen()
+    // (see hyperdht/bin.js) so they're guaranteed to accept dht.connect().
+    // Random routing table nodes DON'T have servers — that's why all 15
+    // candidates in the previous approach returned PEER_NOT_FOUND.
+    const BOOTSTRAP_IPS = new Set(['88.99.3.86', '142.93.90.113', '138.68.147.8'])
+    const allNodes = dht.table.toArray()
+    const bootstrapMatches = allNodes.filter(n => n.id && BOOTSTRAP_IPS.has(n.host))
+    sendLog('Relay pool: found ' + bootstrapMatches.length + ' bootstrap nodes in routing table (total=' + allNodes.length + ')')
+
+    // Also try a small sample of random nodes in case any Keet/Pear instances are in the table
+    const randomCandidates = allNodes
+      .filter(n => n.id && !BOOTSTRAP_IPS.has(n.host) && _isPublicRoutableHost(n.host))
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 5)
+    const candidates = bootstrapMatches.concat(randomCandidates)
+    if (candidates.length === 0) {
+      sendLog('Relay pool: no candidates to test')
+      return
+    }
+
+    sendLog('Relay pool: testing ' + candidates.length + ' candidates (' + bootstrapMatches.length + ' bootstrap + ' + randomCandidates.length + ' random)...')
+    let tested = 0
+    const TARGET = 3
+    for (const node of candidates) {
+      if (this._verifiedRelayPool.length >= TARGET) break
+      const keyHex = b4a.toString(node.id, 'hex').slice(0, 16)
+      const isBootstrap = BOOTSTRAP_IPS.has(node.host)
+      const conn = dht.connect(node.id)
+      const timer = setTimeout(() => { conn.destroy() }, 8000)
+      conn.on('open', () => {
+        clearTimeout(timer)
+        if (this._verifiedRelayPool.length < TARGET) {
+          this._verifiedRelayPool.push(node.id)
+          sendLog('Relay pool: verified ' + keyHex + ' ' + node.host + (isBootstrap ? ' (bootstrap)' : '') + ' (' + this._verifiedRelayPool.length + '/' + TARGET + ')')
+        }
+        conn.destroy()
+      })
+      conn.on('error', () => { clearTimeout(timer) })
+      conn.on('close', () => {
+        clearTimeout(timer)
+        tested++
+        if (tested >= candidates.length && this._verifiedRelayPool.length === 0) {
+          sendLog('Relay pool: no connectable relay nodes found in ' + tested + ' candidates')
+        }
+      })
+    }
   }
 
   async startHosting (deviceCode) {
+    // Wait for start() to finish bootstrapping + NAT probe before touching
+    // the swarm — otherwise we join topics against an uninitialized DHT.
+    if (this._ready) {
+      try { await this._ready } catch (e) {}
+    }
     if (this.isHosting) {
       sendLog('Already hosting, stopping first...')
       this._cleanupHosting()
@@ -818,8 +953,17 @@ class PeariscopeWorklet {
     this.connectToPeer(code)
   }
 
-  connectToPeer (code) {
+  async connectToPeer (code) {
     sendLog('Connecting with code: ' + code)
+
+    // Wait for start() to finish bootstrapping + NAT probe before joining
+    // the swarm — otherwise dht.connect fires against an uninitialized DHT
+    // with firewalled=true stuck as a stale default.
+    if (this._ready) {
+      sendLog('Waiting for DHT ready before joining topic...')
+      try { await this._ready } catch (e) {}
+      sendLog('DHT ready; proceeding with connect')
+    }
 
     // Leave old viewer topic before joining new one — prevents stale swarm
     // connections from the previous session reconnecting to the wrong peer
@@ -1395,7 +1539,7 @@ function handleFrame (frame) {
     case MSG.CONNECT_TO_PEER: {
       try {
         const json = JSON.parse(rest.toString())
-        worklet.connectToPeer(json.code)
+        worklet.connectToPeer(json.code).catch((e) => sendLog('connectToPeer error: ' + (e.message || e)))
       } catch (e) {
         sendLog('CONNECT_TO_PEER: JSON parse error: ' + (e.message || e))
       }
