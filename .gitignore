@@ -7,8 +7,12 @@ apple/.swiftpm/
 # Dependencies
 pear/node_modules/
 
-# Bundles (regenerated from worklet.js)
+# Bundles (regenerated from worklet.js). The dotted variant (worklet.bundle.ios)
+# and hyphenated variant (worklet-ios.bundle) both need to be covered — prior
+# rename-drifts left orphan files that weren't matched by the short glob.
 pear/*.bundle
+pear/*.bundle.*
+pear/worklet-*.bundle
 
 # Xcode
 *.xcuserstate
@@ -17,6 +21,7 @@ DerivedData/
 
 # OS files
 .DS_Store
+._*
 Thumbs.db
 
 # Binary outputs

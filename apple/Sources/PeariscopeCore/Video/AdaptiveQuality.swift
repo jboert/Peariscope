@@ -67,9 +67,9 @@ public final class AdaptiveQuality: @unchecked Sendable {
     private let criticalJitter: Double = 150 // ms
 
     // Bitrate bounds
-    private let minBitrate = 4_000_000     // 4 Mbps
-    private let maxBitrate = 50_000_000    // 50 Mbps
-    private let defaultBitrate = 15_000_000 // 15 Mbps
+    private let minBitrate = 8_000_000     // 8 Mbps
+    private let maxBitrate = 80_000_000    // 80 Mbps
+    private let defaultBitrate = 30_000_000 // 30 Mbps
 
     // Hysteresis: need N consecutive good/bad readings before changing
     private let upgradeThreshold = 2   // 2 good updates before increasing quality

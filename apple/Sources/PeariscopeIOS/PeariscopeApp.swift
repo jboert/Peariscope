@@ -112,6 +112,21 @@ final class ConnectionSounds {
     }
 }
 
+// MARK: - Diagnostics sharing
+
+struct IdentifiedURL: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
 class PeariscopeAppDelegate: NSObject, UIApplicationDelegate {
     private var memorySource: DispatchSourceMemoryPressure?
 
@@ -319,10 +334,18 @@ struct IOSContentView: View {
                     }
                 }
             }
-            // Don't start runtime on launch — defer until user actually connects.
-            // Starting the Bare worklet + DHT bootstrap on idle causes significant
-            // CPU/heat even when just sitting on the home screen.
-            CrashLog.write("App launched — runtime deferred until connect")
+            // Start runtime immediately on launch so the DHT can bootstrap, run
+            // NAT detection, and warm up the routing table BEFORE the user connects.
+            // Keet's sidecar keeps its DHT alive permanently — this is the closest
+            // we can get without a background process. With stock hyperdht tuning
+            // (no aggressive punch overrides), idle DHT costs ~1 UDP ping per 5s.
+            CrashLog.write("App launched — starting runtime for DHT warmup")
+            do {
+                try await networkManager.startRuntime()
+                CrashLog.write("Runtime started for warmup, isAlive=\(networkManager.isWorkletAlive)")
+            } catch {
+                CrashLog.write("Runtime warmup failed: \(error) — will retry on connect")
+            }
         }
         .alert("Previous Session Crash Log", isPresented: .constant(crashLogText != nil)) {
             Button("Copy to Clipboard") {
@@ -357,6 +380,14 @@ struct IOSContentView: View {
     @State private var connectingStatus: String = "Starting network..."
     @State private var dhtNodeCount: Int = 0
     @State private var diagExpanded: Bool = true
+    @State private var diagCopiedFlash: Bool = false
+    @State private var shareLogURL: IdentifiedURL?
+
+    private static let fileTsFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f
+    }()
 
     private var connectingView: some View {
         VStack(spacing: 0) {
@@ -439,22 +470,63 @@ struct IOSContentView: View {
 
             // Diagnostic log (expanded by default for debugging)
             DisclosureGroup(isExpanded: $diagExpanded) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(connectingDiagLines.enumerated()), id: \.offset) { i, line in
-                                Text(line)
-                                    .font(.system(size: 9, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .id(i)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Button {
+                            UIPasteboard.general.string = CrashLog.read() ?? connectingDiagLines.joined(separator: "\n")
+                            diagCopiedFlash = true
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(1200))
+                                diagCopiedFlash = false
                             }
+                        } label: {
+                            Label(diagCopiedFlash ? "Copied" : "Copy",
+                                  systemImage: diagCopiedFlash ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 11, weight: .medium))
                         }
-                        .padding(.horizontal, 4)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(diagCopiedFlash ? .green : .secondary)
+                        Button {
+                            let log = CrashLog.read() ?? connectingDiagLines.joined(separator: "\n")
+                            let ts = Self.fileTsFmt.string(from: Date())
+                            let url = FileManager.default.temporaryDirectory
+                                .appendingPathComponent("peariscope-\(ts).log")
+                            do {
+                                try log.write(to: url, atomically: true, encoding: .utf8)
+                                shareLogURL = IdentifiedURL(url: url)
+                            } catch {
+                                NSLog("[diag] write share log failed: %@", error.localizedDescription)
+                            }
+                        } label: {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        Spacer()
                     }
-                    .frame(maxHeight: 200)
-                    .onChange(of: connectingDiagLines.count) {
-                        if let last = connectingDiagLines.indices.last {
-                            proxy.scrollTo(last, anchor: .bottom)
+                    .padding(.horizontal, 4)
+                    .sheet(item: $shareLogURL) { wrapped in
+                        ShareSheet(items: [wrapped.url])
+                    }
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 2) {
+                                ForEach(Array(connectingDiagLines.enumerated()), id: \.offset) { i, line in
+                                    Text(line)
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .id(i)
+                                }
+                            }
+                            .padding(.horizontal, 4)
+                        }
+                        .frame(maxHeight: 360)
+                        .onChange(of: connectingDiagLines.count) {
+                            if let last = connectingDiagLines.indices.last {
+                                proxy.scrollTo(last, anchor: .bottom)
+                            }
                         }
                     }
                 }
