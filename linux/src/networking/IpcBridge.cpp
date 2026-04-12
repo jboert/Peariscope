@@ -865,65 +865,15 @@ void IpcBridge::Disconnect(const std::string& peerKeyHex) {
 void IpcBridge::SendStreamData(uint32_t streamId, uint8_t channel,
                                const uint8_t* data, size_t size)
 {
-    if (size <= kMaxChunkPayload) {
-        // Unchunked: streamId(4B) + channel(1B) + totalChunks=0(2B) + data
-        std::vector<uint8_t> payload(4 + 1 + 2 + size);
-        WriteU32BE(payload.data(), streamId);
-        payload[4] = channel;
-        payload[5] = 0; // totalChunks high = 0
-        payload[6] = 0; // totalChunks low  = 0
-        std::memcpy(payload.data() + 7, data, size);
-        SendCommand(NativeMsg::StreamData, {}, payload.data(), payload.size());
-        return;
-    }
-
-    // Chunked: build ALL chunk frames first, then write atomically.
-    // This prevents partial frame drops when backpressure triggers mid-frame,
-    // which caused decoder corruption (partial NAL units -> persistent artifacts).
-    size_t totalChunks = (size + kMaxChunkPayload - 1) / kMaxChunkPayload;
-
-    // Pre-build all chunk frames into a single buffer
-    std::vector<uint8_t> allFrames;
-    allFrames.reserve(totalChunks * (4 + 1 + 4 + 1 + 2 + 2 + kMaxChunkPayload));
-
-    for (size_t i = 0; i < totalChunks; ++i) {
-        size_t offset = i * kMaxChunkPayload;
-        size_t chunkLen = std::min(kMaxChunkPayload, size - offset);
-
-        // Build payload: streamId(4B) + channel(1B) + totalChunks(2B) + chunkIndex(2B) + data
-        size_t payloadSize = 4 + 1 + 2 + 2 + chunkLen;
-
-        // Build IPC frame: 4B length (BE) + 1B type + payload
-        size_t frameSize = 4 + 1 + payloadSize;
-        size_t frameStart = allFrames.size();
-        allFrames.resize(frameStart + frameSize);
-        uint8_t* fp = allFrames.data() + frameStart;
-
-        WriteU32BE(fp, static_cast<uint32_t>(1 + payloadSize)); // length = type + payload
-        fp[4] = static_cast<uint8_t>(NativeMsg::StreamData);
-        WriteU32BE(fp + 5, streamId);
-        fp[9] = channel;
-        WriteU16BE(fp + 10, static_cast<uint16_t>(totalChunks));
-        WriteU16BE(fp + 12, static_cast<uint16_t>(i));
-        std::memcpy(fp + 14, data + offset, chunkLen);
-    }
-
-    // Atomic write: either all chunks go or none do
-    std::lock_guard<std::mutex> lk(writeMutex_);
-
-    if (pendingWrite_.size() + allFrames.size() > kMaxPendingWriteBytes) {
-        ++droppedFrameCount_;
-        if (droppedFrameCount_ <= 10 || droppedFrameCount_ % 100 == 0) {
-            std::cerr << "[ipc-write] backpressure: dropping ENTIRE chunked frame ("
-                      << totalChunks << " chunks, " << size << " bytes), pending="
-                      << pendingWrite_.size() << " dropped="
-                      << droppedFrameCount_ << std::endl;
-        }
-        return;
-    }
-
-    pendingWrite_.insert(pendingWrite_.end(), allFrames.begin(), allFrames.end());
-    writeCv_.notify_one();
+    // Send entire frame as one IPC message (no chunking).
+    // The worklet handles large IPC frames fine (4-byte length prefix, no size limit).
+    std::vector<uint8_t> payload(4 + 1 + 2 + size);
+    WriteU32BE(payload.data(), streamId);
+    payload[4] = channel;
+    payload[5] = 0; // totalChunks high = 0 (unchunked)
+    payload[6] = 0; // totalChunks low  = 0
+    std::memcpy(payload.data() + 7, data, size);
+    SendCommand(NativeMsg::StreamData, {}, payload.data(), payload.size());
 }
 
 void IpcBridge::RequestStatus() {

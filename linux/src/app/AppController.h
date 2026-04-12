@@ -447,9 +447,9 @@ private:
     uint32_t lastDecoderHeight_ = 0;
 
     // Adaptive quality
-    uint32_t currentBitrate_ = 20000000;
-    static constexpr uint32_t kMinBitrate = 2000000;
-    static constexpr uint32_t kMaxBitrate = 12000000;
+    uint32_t currentBitrate_ = 30000000;
+    static constexpr uint32_t kMinBitrate = 8000000;
+    static constexpr uint32_t kMaxBitrate = 80000000;
     uint32_t lowFpsReports_ = 0;
     uint32_t goodFpsReports_ = 0;
 

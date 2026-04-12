@@ -920,7 +920,7 @@ void AppController::startHosting() {
 
     mode_ = Mode::Hosting;
     statusText_ = "Starting host...";
-    currentBitrate_ = kMaxBitrate;
+    currentBitrate_ = 30000000;
     lowFpsReports_ = 0;
     goodFpsReports_ = 0;
     CrashLog::Log(CrashLog::Level::Info, "StartHosting");

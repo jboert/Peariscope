@@ -271,7 +271,6 @@ private:
     uint64_t             droppedFrameCount_ = 0;
 
     static constexpr size_t kMaxPendingWriteBytes  = 8 * 1024 * 1024; // 8MB
-    static constexpr size_t kMaxChunkPayload       = 65000;           // 65KB chunks (was 16KB)
     static constexpr size_t kMaxFrameLength        = 5 * 1024 * 1024;
     static constexpr int    kMaxChunksPerBuffer     = 256;
     static constexpr int    kMaxPendingChunkBuffers = 16;
