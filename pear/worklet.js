@@ -741,28 +741,24 @@ class PeariscopeWorklet {
     // The probe can fail even on open networks when the DHT is too fresh —
     // _checkIfFirewalled needs verified routing nodes to send PING_NAT to,
     // and a fresh DHT may not have enough.
-    if (dht.firewalled && dht._nat && dht._nat.host) {
-      sendLog('NAT probe inconclusive but we have external address ' + dht._nat.host + ':' + dht._nat.port + ' — forcing firewalled=false')
-      dht.firewalled = false
-      dht.io.firewalled = false
-    }
-    // dht.remoteAddress() also checks that the server socket local port
-    // matches the NAT-observed external port (dht-rpc/index.js:208). On
-    // most home NATs they differ (no UPnP), so remoteAddress() returns null
-    // and the server handshake reports FIREWALL.UNKNOWN even though we're
-    // reachable. Override to return the observed external address directly.
-    if (!dht.firewalled && dht._nat && dht._nat.host) {
-      const origRemoteAddress = dht.remoteAddress.bind(dht)
-      dht.remoteAddress = function () {
-        const orig = origRemoteAddress()
-        if (orig) return orig
-        if (!dht._nat.host) return null
-        const serverPort = dht.io && dht.io.serverSocket ? dht.io.serverSocket.address().port : 0
-        if (!serverPort) return null
-        return { host: dht._nat.host, port: serverPort }
-      }
-      const addr = dht.remoteAddress()
-      sendLog('remoteAddress override: ' + (addr ? addr.host + ':' + addr.port : 'null'))
+    // Continue probing in the background — the initial 6s may not be enough
+    // on networks where the DHT needs more time to verify routing nodes.
+    // When firewalled flips to false, the server handshake automatically
+    // reports FIREWALL.OPEN and clients can connect directly.
+    if (dht.firewalled) {
+      sendLog('Continuing NAT probe in background (checking every 5s)...')
+      const bgProbeInterval = setInterval(() => {
+        if (!dht.firewalled) {
+          clearInterval(bgProbeInterval)
+          const addr = dht.remoteAddress()
+          sendLog('Background NAT probe succeeded: firewalled=false remoteAddress=' + (addr ? addr.host + ':' + addr.port : 'null'))
+          return
+        }
+        dht._updateNetworkState(false).catch(() => {})
+      }, 5000)
+      // Stop after 2 minutes — if it hasn't flipped by then, the network
+      // genuinely doesn't support inbound UDP (CGNAT etc.)
+      setTimeout(() => clearInterval(bgProbeInterval), 120000)
     }
 
     // Start warming the relay pool in the background
@@ -1110,12 +1106,17 @@ class PeariscopeWorklet {
   }
 
   forwardStreamData (streamId, channel, data) {
+    if (channel === 2) {
+      sendLog('fwd-ctrl: sid=' + streamId + ' ch=2 len=' + data.length + ' peers=' + this.peers.size)
+    }
     for (const [, peer] of this.peers) {
       if (peer.streamId === streamId) {
+        if (channel === 2) sendLog('fwd-ctrl: matched peer sid=' + streamId + ', sending via mux')
         peer.mux.send(channel, data)
         return
       }
     }
+    if (channel === 2) sendLog('fwd-ctrl: NO peer found for sid=' + streamId)
   }
 
   getStatus () {
@@ -1211,6 +1212,7 @@ class PeariscopeWorklet {
     })
 
     mux.onChannel(2, (data) => {
+      sendLog('ch2 ctrl recv: ' + data.length + 'B sid=' + streamId)
       sendFrame(MSG.STREAM_DATA_OUT, { streamId, channel: 2 }, data)
     })
 
