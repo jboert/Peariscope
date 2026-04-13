@@ -556,7 +556,14 @@ static void pwProcess(void* userdata) {
     if (buf->n_datas >= 1 && buf->datas[0].data && st->callback &&
         st->running->load(std::memory_order_acquire)) {
 
-        auto* data = static_cast<uint8_t*>(buf->datas[0].data);
+        // chunk->offset is the byte offset *within the mapped buffer* where
+        // the current frame lives. PipeWire pools reuse one mapped region
+        // across multiple buffer slots, so every frame after the first sits
+        // at a different offset. Reading `data + 0` returns stale (often
+        // zero-initialised) memory from a slot the compositor isn't writing
+        // to — which produces a fully-black video feed.
+        uint32_t offset = buf->datas[0].chunk->offset;
+        auto* data = static_cast<uint8_t*>(buf->datas[0].data) + offset;
         uint32_t stride = buf->datas[0].chunk->stride;
         uint32_t size = buf->datas[0].chunk->size;
 
