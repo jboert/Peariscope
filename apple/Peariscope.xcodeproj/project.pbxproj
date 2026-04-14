@@ -19,6 +19,7 @@
 		0BDF3801E9D6A3AEB48346C1 /* messages.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F5B61172BA81C1310B1B2D6 /* messages.pb.swift */; };
 		0CB5FF235D9D6C15760100BE /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE474B86ED331210BFAFAAB /* NetworkManager.swift */; };
 		0E8453E5FAE8A6DF9139A4D5 /* VirtualKeycodes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 788EBC858331FB56A25C1EA1 /* VirtualKeycodes.swift */; };
+		10E0B0198AC839A7CE28428F /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38221710D6F5A7B7593C34B8 /* ThemeManager.swift */; };
 		134E2E63448636B22ECD2B7B /* AdaptiveQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35C767646637DEA08DC6446F /* AdaptiveQuality.swift */; };
 		167359E8DA9C1673300CD49A /* udx-native.1.19.2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 32C7CB3FBB6D610B0A615EC1 /* udx-native.1.19.2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		16C75CCF18E82E10473A56A2 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FCD33D459F01DF253CE2BB2 /* AppDelegate.swift */; };
@@ -104,6 +105,7 @@
 		E46FE868F91F4EDB89BA8237 /* ViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 125BEB233A17BE2C6124F221 /* ViewerView.swift */; };
 		E491269E8BE61068A79C9532 /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CE3DD122B6624C2A2D4C9C /* KeyManager.swift */; };
 		E63FB92D23DF7F7271CFBFA7 /* BareKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; };
+		E79CD0BEE52F470E23B6B7E0 /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38221710D6F5A7B7593C34B8 /* ThemeManager.swift */; };
 		E85CE95D4E560F3FC55DBE06 /* BareWorkletBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFCE9803E1F196231F98D08 /* BareWorkletBridge.swift */; };
 		EABFE5CB51D00E3BCA4B5123 /* QRPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0656F6B7950A85657A6E82 /* QRPairing.swift */; };
 		EACABE827D36F74CD68A2C6B /* ClipboardSharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68CE45368BF3187EF3435346 /* ClipboardSharing.swift */; };
@@ -113,8 +115,6 @@
 		F3D0D67BB722E31784724991 /* LocalDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E9C373CCF74F1C06F913F8 /* LocalDiscovery.swift */; };
 		F734536F41C8703A05255E0C /* BareKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 1208DE51BF0CE8533F87790B /* BareKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F89CE932926D6B926A62BB75 /* CrashLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD4F4603D0FA530227C7D335 /* CrashLog.swift */; };
-		FA1B2C3D4E5F6A7B8C9D0E1F /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1C2D3E4F5A6B7C8D9E0F12 /* ThemeManager.swift */; };
-		FA2B3C4D5E6F7A8B9C0D1E2F /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1C2D3E4F5A6B7C8D9E0F12 /* ThemeManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -185,6 +185,7 @@
 		32C7CB3FBB6D610B0A615EC1 /* udx-native.1.19.2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "udx-native.1.19.2.xcframework"; path = "Frameworks/udx-native.1.19.2.xcframework"; sourceTree = "<group>"; };
 		35C767646637DEA08DC6446F /* AdaptiveQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveQuality.swift; sourceTree = "<group>"; };
 		3717C0841DB3865172CEDA5C /* AudioEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEncoder.swift; sourceTree = "<group>"; };
+		38221710D6F5A7B7593C34B8 /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		38CE3DD122B6624C2A2D4C9C /* KeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyManager.swift; sourceTree = "<group>"; };
 		3AFCE9803E1F196231F98D08 /* BareWorkletBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BareWorkletBridge.swift; sourceTree = "<group>"; };
 		3FBF18480A88932816FB97D1 /* bare-type.1.1.0.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-type.1.1.0.xcframework"; path = "Frameworks/bare-type.1.1.0.xcframework"; sourceTree = "<group>"; };
@@ -213,7 +214,6 @@
 		9C90E01D0473ED1593575617 /* bare-module-lexer.1.4.7.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-module-lexer.1.4.7.xcframework"; path = "Frameworks/bare-module-lexer.1.4.7.xcframework"; sourceTree = "<group>"; };
 		9FC25272D55368BE1A21BDAF /* HostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostView.swift; sourceTree = "<group>"; };
 		A9896E1D1D375E80807DF0E2 /* ReconnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectionManager.swift; sourceTree = "<group>"; };
-		AB1C2D3E4F5A6B7C8D9E0F12 /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		AB8484063415C97601A39E51 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AD4F4603D0FA530227C7D335 /* CrashLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLog.swift; sourceTree = "<group>"; };
 		B3A90468AA3EE4B4D0FDE921 /* bare-fs.4.5.5.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "bare-fs.4.5.5.xcframework"; path = "Frameworks/bare-fs.4.5.5.xcframework"; sourceTree = "<group>"; };
@@ -348,7 +348,7 @@
 			isa = PBXGroup;
 			children = (
 				52F32FAB94F8D1A3E6B6D985 /* BIP39Wordlist.swift */,
-				AB1C2D3E4F5A6B7C8D9E0F12 /* ThemeManager.swift */,
+				38221710D6F5A7B7593C34B8 /* ThemeManager.swift */,
 				7A751862589981DC7F9B6A3A /* Audio */,
 				B6DC569AFEE4D4454821DEF2 /* Auth */,
 				00D546A202B59A851ED9613B /* Clipboard */,
@@ -684,7 +684,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for macOS\ncd \"$PEAR_SRC\"\nPATH=\"/Users/bcap/.bun/bin:/Users/bcap/.local/bin:/opt/local/bin:/opt/local/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/opt/homebrew/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/Users/bcap/Library/Application Support/pear/bin:/Users/bcap/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:/Users/bcap/.claude/plugins/cache/claude-plugins-official/swift-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/clangd-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/rust-analyzer-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/ralph-marketplace/ralph-skills/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown/bin:/Users/bcap/.claude/plugins/cache/interface-design/interface-design/2026.2.9.1212/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/bin:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet.bundle\" ]; then\n  npx bare-pack --preset darwin --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1\n  if [ $? -ne 0 ]; then echo \"error: bare-pack failed for macOS worklet\" >&2; exit 1; fi\nfi\nif [ ! -f \"$PEAR_SRC/worklet.bundle\" ]; then echo \"error: worklet.bundle not found — run npm install in pear/\" >&2; exit 1; fi\ncp \"$PEAR_SRC/worklet.bundle\" \"$PEAR_DEST/\"\n\n# Copy macOS native addon frameworks\nif [ -d \"$PEAR_SRC/addons-darwin\" ]; then\n  for fw in \"$PEAR_SRC/addons-darwin\"/*.framework; do\n    if [ -d \"$fw\" ]; then\n      cp -R \"$fw\" \"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Frameworks/\"\n    fi\n  done\nfi\n\n# Also copy legacy files for Node.js fallback\ncp \"$PEAR_SRC/index.js\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp \"$PEAR_SRC/package.json\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp -R \"$PEAR_SRC/lib\" \"$PEAR_DEST/lib\" 2>/dev/null || true\nif [ -d \"$PEAR_SRC/node_modules\" ]; then\n  cp -R \"$PEAR_SRC/node_modules\" \"$PEAR_DEST/node_modules\"\nfi\nPROTO_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/protocol\"\nmkdir -p \"$PROTO_DEST\"\ncp \"${SRCROOT}/../protocol/messages.proto\" \"$PROTO_DEST/\"\nNODE_SRC=$(which node)\nNODE_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/node\"\ncp \"$NODE_SRC\" \"$NODE_DEST\" 2>/dev/null || true\nchmod +x \"$NODE_DEST\" 2>/dev/null || true\n";
+			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for macOS\ncd \"$PEAR_SRC\"\nPATH=\"/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet.bundle\" ]; then\n  npx bare-pack --preset darwin --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1\n  if [ $? -ne 0 ]; then echo \"error: bare-pack failed for macOS worklet\" >&2; exit 1; fi\nfi\nif [ ! -f \"$PEAR_SRC/worklet.bundle\" ]; then echo \"error: worklet.bundle not found — run npm install in pear/\" >&2; exit 1; fi\ncp \"$PEAR_SRC/worklet.bundle\" \"$PEAR_DEST/\"\n\n# Copy macOS native addon frameworks\nif [ -d \"$PEAR_SRC/addons-darwin\" ]; then\n  for fw in \"$PEAR_SRC/addons-darwin\"/*.framework; do\n    if [ -d \"$fw\" ]; then\n      cp -R \"$fw\" \"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Frameworks/\"\n    fi\n  done\nfi\n\n# Also copy legacy files for Node.js fallback\ncp \"$PEAR_SRC/index.js\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp \"$PEAR_SRC/package.json\" \"$PEAR_DEST/\" 2>/dev/null || true\ncp -R \"$PEAR_SRC/lib\" \"$PEAR_DEST/lib\" 2>/dev/null || true\nif [ \"$CONFIGURATION\" = \"Debug\" ] && [ -d \"$PEAR_SRC/node_modules\" ]; then\n  cp -R \"$PEAR_SRC/node_modules\" \"$PEAR_DEST/node_modules\"\nfi\nPROTO_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/protocol\"\nmkdir -p \"$PROTO_DEST\"\ncp \"${SRCROOT}/../protocol/messages.proto\" \"$PROTO_DEST/\"\nif [ \"$CONFIGURATION\" = \"Debug\" ]; then\n  NODE_SRC=$(which node)\n  NODE_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/node\"\n  cp \"$NODE_SRC\" \"$NODE_DEST\" 2>/dev/null || true\n  chmod +x \"$NODE_DEST\" 2>/dev/null || true\nfi\n";
 		};
 		B5EB8D512AD6C1C8A793C533 /* Bundle Pear Runtime for iOS */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -703,7 +703,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for iOS\ncd \"$PEAR_SRC\"\nPATH=\"/Users/bcap/.bun/bin:/Users/bcap/.local/bin:/opt/local/bin:/opt/local/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/opt/homebrew/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/Users/bcap/Library/Application Support/pear/bin:/Users/bcap/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:/Users/bcap/.claude/plugins/cache/claude-plugins-official/swift-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/clangd-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/rust-analyzer-lsp/1.0.0/bin:/Users/bcap/.claude/plugins/cache/ralph-marketplace/ralph-skills/1.0.0/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown/bin:/Users/bcap/.claude/plugins/cache/interface-design/interface-design/2026.2.9.1212/bin:/Users/bcap/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/bin:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet-ios.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet-ios.bundle\" ]; then\n  npx bare-pack --preset ios --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1\n  if [ $? -ne 0 ]; then echo \"error: bare-pack failed for iOS worklet\" >&2; exit 1; fi\nfi\nif [ ! -f \"$PEAR_SRC/worklet-ios.bundle\" ]; then echo \"error: worklet-ios.bundle not found — run npm install in pear/\" >&2; exit 1; fi\ncp \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_DEST/worklet.bundle\"\n";
+			shellScript = "PEAR_SRC=\"${SRCROOT}/../pear\"\nPEAR_DEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/pear\"\nrm -rf \"$PEAR_DEST\"\nmkdir -p \"$PEAR_DEST\"\n\n# Pack the worklet bundle for iOS\ncd \"$PEAR_SRC\"\nPATH=\"/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${PEAR_SRC}/node_modules/.bin\"\nif [ ! -f \"$PEAR_SRC/worklet-ios.bundle\" ] || [ \"$PEAR_SRC/worklet.js\" -nt \"$PEAR_SRC/worklet-ios.bundle\" ]; then\n  npx bare-pack --preset ios --linked --base \"$PEAR_SRC\" --out \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_SRC/worklet.js\" 2>&1\n  if [ $? -ne 0 ]; then echo \"error: bare-pack failed for iOS worklet\" >&2; exit 1; fi\nfi\nif [ ! -f \"$PEAR_SRC/worklet-ios.bundle\" ]; then echo \"error: worklet-ios.bundle not found — run npm install in pear/\" >&2; exit 1; fi\ncp \"$PEAR_SRC/worklet-ios.bundle\" \"$PEAR_DEST/worklet.bundle\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -753,7 +753,6 @@
 				430659B45A2F0C43296A624A /* AudioEncoder.swift in Sources */,
 				090632F0A249A16F4108C464 /* AudioPlayer.swift in Sources */,
 				5F747F765F5E37A558553F67 /* BIP39Wordlist.swift in Sources */,
-				FA1B2C3D4E5F6A7B8C9D0E1F /* ThemeManager.swift in Sources */,
 				3441D25C16305A89FC8547AE /* BareWorkletBridge.swift in Sources */,
 				A66B683067EF59C059D1E25B /* ClipboardSharing.swift in Sources */,
 				4616ED27C00FEF001B77A332 /* Decoder.swift in Sources */,
@@ -771,6 +770,7 @@
 				87785E3EDF10F1D18EECC636 /* QRPairing.swift in Sources */,
 				DA3AEDDE2AFF5D59E8BF7D65 /* ReconnectionManager.swift in Sources */,
 				0419F0D1BA61ED89749015AB /* Renderer.swift in Sources */,
+				E79CD0BEE52F470E23B6B7E0 /* ThemeManager.swift in Sources */,
 				0E8453E5FAE8A6DF9139A4D5 /* VirtualKeycodes.swift in Sources */,
 				0BDF3801E9D6A3AEB48346C1 /* messages.pb.swift in Sources */,
 			);
@@ -784,7 +784,6 @@
 				F2FDDC107E75086B6027F949 /* AudioEncoder.swift in Sources */,
 				38A127AD80D7440E7CB00DD8 /* AudioPlayer.swift in Sources */,
 				8D30E3EB75E5BBF05945EF8D /* BIP39Wordlist.swift in Sources */,
-				FA2B3C4D5E6F7A8B9C0D1E2F /* ThemeManager.swift in Sources */,
 				E85CE95D4E560F3FC55DBE06 /* BareWorkletBridge.swift in Sources */,
 				EACABE827D36F74CD68A2C6B /* ClipboardSharing.swift in Sources */,
 				40B6A33FA43604948141A852 /* Decoder.swift in Sources */,
@@ -802,6 +801,7 @@
 				EABFE5CB51D00E3BCA4B5123 /* QRPairing.swift in Sources */,
 				9611D0DC3435043724529D06 /* ReconnectionManager.swift in Sources */,
 				85AEF132F0237514BAB2900A /* Renderer.swift in Sources */,
+				10E0B0198AC839A7CE28428F /* ThemeManager.swift in Sources */,
 				C8E605F0DB33B3C0C7509C6E /* VirtualKeycodes.swift in Sources */,
 				D980D1D0C25AFE9D03F21CC3 /* messages.pb.swift in Sources */,
 			);
