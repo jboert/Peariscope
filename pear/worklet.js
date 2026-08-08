@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v49-fast-connect-pin-fix-20260412'
+const WORKLET_VERSION = 'v50-trust-nat-probe-20260808'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -745,17 +745,35 @@ class PeariscopeWorklet {
       ' port=' + ((dht._nat && dht._nat.port) || 0) +
       ' attempts=' + probeAttempts)
 
-    // If the probe couldn't determine NAT state (firewalled=true still) but
-    // we have a valid external address, try forcing firewalled=false so the
-    // server reports FIREWALL.OPEN in handshakes. This lets CGNAT clients
-    // connect directly to our public IP without holepunching.
-    // The probe can fail even on open networks when the DHT is too fresh —
-    // _checkIfFirewalled needs verified routing nodes to send PING_NAT to,
-    // and a fresh DHT may not have enough.
-    if (dht.firewalled && dht._nat && dht._nat.host) {
-      sendLog('NAT probe inconclusive but we have external address ' + dht._nat.host + ':' + dht._nat.port + ' — forcing firewalled=false')
+    // Only override the probe when it genuinely could not run.
+    //
+    // dht-rpc's _checkIfFirewalled returns true for four different reasons, and
+    // collapses them into one boolean:
+    //   1. no nodes available to test against (including bootstrappers) — inconclusive
+    //   2. too few PING_NAT pongs came back on the server socket — inconclusive
+    //   3. server-socket IP differs from client-socket IP — a real NAT verdict
+    //   4. external port differs from the local server port — a real NAT verdict
+    //
+    // Only case 1 is observable from out here: it requires an empty routing
+    // table. With nodes available, the probe actually tested whether unsolicited
+    // inbound UDP reaches our server socket, and firewalled=true is a real answer.
+    //
+    // Forcing firewalled=false on a real verdict is actively harmful: the server
+    // then advertises FIREWALL.OPEN, peers skip holepunching entirely
+    // (holepunch=null in the handshake) and dial our external address directly.
+    // Knowing our external ip:port is NOT the same as being reachable on it — on
+    // a port-preserving NAT the address looks right but carries no unsolicited
+    // traffic, so both ends sit there until UDX times out (~13s) with
+    // "connection timed out" and nothing ever crosses the wire.
+    const routingNodes = dht.toArray().length
+    if (dht.firewalled && dht._nat && dht._nat.host && routingNodes === 0) {
+      sendLog('NAT probe could not run (empty routing table) but we have external address ' +
+        dht._nat.host + ':' + dht._nat.port + ' — forcing firewalled=false')
       dht.firewalled = false
       dht.io.firewalled = false
+    } else if (dht.firewalled) {
+      sendLog('NAT probe reports firewalled=true against ' + routingNodes +
+        ' routing nodes — trusting it; holepunching will be used')
     }
     if (!dht.firewalled && dht._nat && dht._nat.host) {
       const origRemoteAddress = dht.remoteAddress.bind(dht)
