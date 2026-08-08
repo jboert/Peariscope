@@ -648,8 +648,18 @@ public final class NetworkManager: ObservableObject {
         }
     }
 
-    /// Write diagnostic to a file since NSLog is suppressed on iOS 26
+    /// Serial queue for diagnostic writes. These touch the Documents directory,
+    /// which is TCC-protected — the first access from an unapproved binary blocks
+    /// until the user answers a consent prompt. A menu-bar app never surfaces that
+    /// prompt, so a synchronous write here deadlocks launch (it stalled
+    /// startRuntime() indefinitely). Never write from the caller's thread.
+    private static let diagQueue = DispatchQueue(label: "peariscope.diag", qos: .utility)
+
+    /// Write diagnostic to a file since NSLog is suppressed on iOS 26.
+    /// iOS-only by design: macOS already gets the same content via debugLog()'s
+    /// log file in the temp directory, which needs no TCC approval.
     private func diagWrite(_ msg: String) {
+        #if os(iOS)
         #if DEBUG
         let diagnosticsEnabled = true
         #else
@@ -657,11 +667,12 @@ public final class NetworkManager: ObservableObject {
         #endif
         guard diagnosticsEnabled else { return }
 
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        let path = docs.appendingPathComponent("peariscope-diag.txt")
         let line = "\(Date()): \(msg)\n"
-        if let data = line.data(using: .utf8) {
+        Self.diagQueue.async {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+                ?? FileManager.default.temporaryDirectory
+            let path = docs.appendingPathComponent("peariscope-diag.txt")
+            guard let data = line.data(using: .utf8) else { return }
             if let fh = try? FileHandle(forWritingTo: path) {
                 fh.seekToEndOfFile()
                 fh.write(data)
@@ -670,6 +681,7 @@ public final class NetworkManager: ObservableObject {
                 try? data.write(to: path)
             }
         }
+        #endif
     }
 
     public func startRuntime() async throws {
