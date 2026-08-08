@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v50-trust-nat-probe-20260808'
+const WORKLET_VERSION = 'v51-drop-dead-relay-pool-20260808'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -448,7 +448,6 @@ class PeariscopeWorklet {
     this._warmupInterval = null
     this._nextStreamId = 1
     this._proactiveRelayLogged = false
-    this._verifiedRelayPool = []
     // _bootstrapReady: resolved after DHT bootstrap (swarm.listen). Enough
     // for viewers to start looking up topics — no NAT probe needed.
     this._bootstrapReadyResolve = null
@@ -617,29 +616,13 @@ class PeariscopeWorklet {
       dht  // pass our pre-configured DHT instance
     }
 
-    // relayThrough: when direct holepunch fails (symmetric NAT/CGNAT),
-    // Hyperswarm relays traffic through a DHT node via blind-relay.
-    // CRITICAL: the relay node must have an active HyperDHT server (via
-    // createServer().listen()) — otherwise dht.connect(relayPubKey) fails
-    // with PEER_NOT_FOUND. Random routing table nodes DON'T have servers.
-    // We pre-verify relay candidates during warmup (_warmRelayPool) and
-    // only return nodes we've confirmed are connectable.
-    swarmOpts.relayThrough = (force) => {
-      if (!this.swarm || !this.swarm.dht) return null
-      const dht = this.swarm.dht
-      const shouldAllowRelay = force || dht.randomized || dht.firewalled
-      if (!shouldAllowRelay) return null
-      const pool = this._verifiedRelayPool
-      if (pool.length === 0) {
-        sendLog('relayThrough: no verified relay nodes available (pool empty)')
-        return null
-      }
-      const node = pool[Math.floor(Math.random() * pool.length)]
-      sendLog('relayThrough: force=' + force + ' firewalled=' + dht.firewalled +
-        ' randomized=' + dht.randomized + ' pool=' + pool.length +
-        ' selected=' + b4a.toString(node, 'hex').slice(0, 16))
-      return node
-    }
+    // No relayThrough. It takes a relay peer's Noise public key, and we have
+    // no source of one: the previous implementation passed routing-table
+    // node ids, which are crypto_generichash(host, port) address hashes, not
+    // public keys — so every candidate failed PEER_NOT_FOUND and the pool was
+    // permanently empty. Connectivity is holepunch-only. Adding a real relay
+    // means a peer with a stable keypair we know the public key of (Keet uses
+    // other call participants; a two-peer app would need one we operate).
 
     this.swarm = new Hyperswarm(swarmOpts)
 
@@ -788,64 +771,11 @@ class PeariscopeWorklet {
       sendLog('remoteAddress override: ' + (addr ? addr.host + ':' + addr.port : 'null'))
     }
 
-    // Start warming the relay pool in the background
-    this._warmRelayPool(dht)
-
     // Signal ready — connectToPeer / startHosting await this so they don't
     // dispatch dht.connect before the DHT is bootstrapped and NAT state settled.
     if (this._readyResolve) {
       this._readyResolve()
       this._readyResolve = null
-    }
-  }
-
-  _warmRelayPool (dht) {
-    // Strategy: find the HyperDHT bootstrap nodes in our routing table by
-    // their well-known IPs. Bootstrap nodes run dht.createServer().listen()
-    // (see hyperdht/bin.js) so they're guaranteed to accept dht.connect().
-    // Random routing table nodes DON'T have servers — that's why all 15
-    // candidates in the previous approach returned PEER_NOT_FOUND.
-    const BOOTSTRAP_IPS = new Set(['88.99.3.86', '142.93.90.113', '138.68.147.8'])
-    const allNodes = dht.table.toArray()
-    const bootstrapMatches = allNodes.filter(n => n.id && BOOTSTRAP_IPS.has(n.host))
-    sendLog('Relay pool: found ' + bootstrapMatches.length + ' bootstrap nodes in routing table (total=' + allNodes.length + ')')
-
-    // Also try a small sample of random nodes in case any Keet/Pear instances are in the table
-    const randomCandidates = allNodes
-      .filter(n => n.id && !BOOTSTRAP_IPS.has(n.host) && _isPublicRoutableHost(n.host))
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 5)
-    const candidates = bootstrapMatches.concat(randomCandidates)
-    if (candidates.length === 0) {
-      sendLog('Relay pool: no candidates to test')
-      return
-    }
-
-    sendLog('Relay pool: testing ' + candidates.length + ' candidates (' + bootstrapMatches.length + ' bootstrap + ' + randomCandidates.length + ' random)...')
-    let tested = 0
-    const TARGET = 3
-    for (const node of candidates) {
-      if (this._verifiedRelayPool.length >= TARGET) break
-      const keyHex = b4a.toString(node.id, 'hex').slice(0, 16)
-      const isBootstrap = BOOTSTRAP_IPS.has(node.host)
-      const conn = dht.connect(node.id)
-      const timer = setTimeout(() => { conn.destroy() }, 8000)
-      conn.on('open', () => {
-        clearTimeout(timer)
-        if (this._verifiedRelayPool.length < TARGET) {
-          this._verifiedRelayPool.push(node.id)
-          sendLog('Relay pool: verified ' + keyHex + ' ' + node.host + (isBootstrap ? ' (bootstrap)' : '') + ' (' + this._verifiedRelayPool.length + '/' + TARGET + ')')
-        }
-        conn.destroy()
-      })
-      conn.on('error', () => { clearTimeout(timer) })
-      conn.on('close', () => {
-        clearTimeout(timer)
-        tested++
-        if (tested >= candidates.length && this._verifiedRelayPool.length === 0) {
-          sendLog('Relay pool: no connectable relay nodes found in ' + tested + ' candidates')
-        }
-      })
     }
   }
 
