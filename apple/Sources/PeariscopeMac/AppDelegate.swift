@@ -33,6 +33,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
+
+        // Single-instance guard. LaunchServices normally dedupes by bundle ID, but
+        // `open -n` and launching the binary directly both bypass that. A second
+        // instance is never valid: both copies host on the same cached keypair and
+        // identity, announce the same DHT topic, and fight over the same worklet
+        // state — which looks like random connection failures rather than an
+        // obvious error. Hand off to the original and exit.
+        if let bundleID = Bundle.main.bundleIdentifier {
+            let mine = NSRunningApplication.current
+            let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                .filter { $0.processIdentifier != mine.processIdentifier }
+            // Only defer to an instance that started before us, so two racing
+            // launches can't both decide to quit.
+            let earlier = others.filter { other in
+                guard let theirs = other.launchDate else { return true }
+                guard let ours = mine.launchDate else { return true }
+                return theirs < ours
+            }
+            if let original = earlier.first {
+                NSLog("[app] Another instance is already running (pid %d) — activating it and exiting",
+                      original.processIdentifier)
+                original.activate(options: [])
+                NSApp.terminate(nil)
+                return
+            }
+        }
+
         NSLog("[app] applicationDidFinishLaunching — menu bar mode")
 
         // Disable App Nap — Peariscope needs to maintain P2P connections in background
