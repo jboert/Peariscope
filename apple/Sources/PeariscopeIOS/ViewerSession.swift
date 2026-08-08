@@ -25,6 +25,12 @@ final class IOSViewerSession: ObservableObject {
     @Published var pendingPin: String?
     @Published var pinEntryText: String = ""
     @Published var hostFingerprint: String?
+    /// Feedback for the PIN overlay: in-flight, rejected, or delivery failure.
+    /// Without this a failed submit is indistinguishable from a dead button.
+    @Published var pinStatusMessage: String?
+    /// Fires if the host never answers a submitted PIN, so the overlay can't
+    /// sit there looking functional while nothing is coming back.
+    private var pinSubmitTimeout: Timer?
     /// Live diagnostic lines shown on "Waiting for video..." overlay
     @Published var diagnosticLines: [String] = []
     /// Remote cursor position from host (normalized 0-1)
@@ -915,19 +921,31 @@ final class IOSViewerSession: ObservableObject {
             CrashLog.write("PIN CHALLENGE received — showing PIN entry")
             pendingPin = "pending"
             pinEntryText = ""
+            // Fresh challenge (often after a reconnect): drop any stale status
+            // from the previous attempt so it can't mislead.
+            pinSubmitTimeout?.invalidate()
+            pinSubmitTimeout = nil
+            pinStatusMessage = nil
             if !challenge.peerKey.isEmpty {
                 let hexKey = challenge.peerKey.map { String(format: "%02x", $0) }.joined()
                 hostFingerprint = PeerFingerprint.format(hexKey)
             }
         case .peerChallengeResponse(let response):
+            pinSubmitTimeout?.invalidate()
+            pinSubmitTimeout = nil
             if response.accepted {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 pendingPin = nil
+                pinStatusMessage = nil
                 hostFingerprint = nil
                 IOSViewerSession.routeCount = 0
                 requestIDR()
             } else {
+                // Previously only a haptic fired, so a wrong PIN looked identical
+                // to a broken button. Say what happened and clear the field.
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
+                pinStatusMessage = "Incorrect PIN"
+                pinEntryText = ""
             }
         case .ping(let ping):
             // Echo ping back as pong for host RTT measurement
@@ -971,13 +989,46 @@ final class IOSViewerSession: ObservableObject {
         }
         let peers = networkManager.connectedPeers
         NSLog("[pin] submitPin: peers=\(peers.count) pinLen=\(pinEntryText.count) dataLen=\(data.count)")
+
+        guard !peers.isEmpty else {
+            // The stream died before the PIN was submitted. Keep the overlay up —
+            // reconnect will issue a fresh challenge — but say so, instead of
+            // silently dismissing and leaving the tap looking ignored.
+            CrashLog.write("submitPin: no peers to send to")
+            pinStatusMessage = "Connection lost — reconnecting…"
+            return
+        }
+
+        // Count actual deliveries. This used to be `try?`, which swallowed every
+        // send failure: on a dead stream the button did nothing at all, with no
+        // error and no state change.
+        var delivered = 0
         for peer in peers {
             NSLog("[pin] sending to peer sid=\(peer.streamId) id=\(peer.id.prefix(16))")
-            try? networkManager.sendControlData(data, streamId: peer.streamId)
+            do {
+                try networkManager.sendControlData(data, streamId: peer.streamId)
+                delivered += 1
+            } catch {
+                CrashLog.write("submitPin: send failed sid=\(peer.streamId): \(error)")
+            }
         }
-        if peers.isEmpty {
-            CrashLog.write("submitPin: no peers to send to")
-            pendingPin = nil  // No peers — clear overlay so user isn't stuck
+
+        guard delivered > 0 else {
+            pinStatusMessage = "Couldn't reach host — tap Connect to retry"
+            return
+        }
+
+        pinStatusMessage = "Checking…"
+
+        // The host may never answer (dropped response, stream dying mid-flight).
+        // Without this the overlay waits forever with no way to tell.
+        pinSubmitTimeout?.invalidate()
+        pinSubmitTimeout = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.pendingPin != nil else { return }
+                CrashLog.write("submitPin: no host response after 10s")
+                self.pinStatusMessage = "No response from host — tap Connect to retry"
+            }
         }
         // Don't clear pendingPin here — wait for host's PeerChallengeResponse(accepted: true)
         // to confirm the PIN was correct. The overlay stays until confirmation arrives.
@@ -993,6 +1044,9 @@ final class IOSViewerSession: ObservableObject {
         for peer in networkManager.connectedPeers {
             try? networkManager.sendControlData(data, streamId: peer.streamId)
         }
+        pinSubmitTimeout?.invalidate()
+        pinSubmitTimeout = nil
+        pinStatusMessage = nil
         pendingPin = nil
         disconnect()
         onExitViewer?()

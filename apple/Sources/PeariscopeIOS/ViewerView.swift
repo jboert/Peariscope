@@ -248,6 +248,15 @@ struct IOSViewerView: View {
                                 UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.4)
                             }
                         }
+                    if let status = viewerSession.pinStatusMessage {
+                        Text(status)
+                            .font(.caption)
+                            .foregroundStyle(status == "Checking…"
+                                             ? .white.opacity(0.7)
+                                             : Color.red.opacity(0.9))
+                            .multilineTextAlignment(.center)
+                            .transition(.opacity)
+                    }
                     HStack(spacing: 16) {
                         Button {
                             UINotificationFeedbackGenerator().notificationOccurred(.warning)
