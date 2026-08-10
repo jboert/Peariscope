@@ -306,6 +306,12 @@ final class IOSViewerSession: ObservableObject {
         h264.onDecodedFrame = onDecoded
         h265.onDecodedFrame = onDecoded
 
+        // Route decoder diagnostics into CrashLog. NSLog is redacted as <private>
+        // on-device, so without this the VideoToolbox status codes behind an H.265
+        // fallback cannot be read off the phone at all.
+        h265.onLog = { msg in CrashLog.write(msg) }
+        h264.onLog = { msg in CrashLog.write(msg) }
+
         h265.onCodecFallbackNeeded = { [weak self] in
             guard let self else { return }
             DispatchQueue.main.async {

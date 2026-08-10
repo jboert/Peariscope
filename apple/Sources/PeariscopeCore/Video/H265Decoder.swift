@@ -61,6 +61,12 @@ public final class H265Decoder: @unchecked Sendable {
     private var consecutiveDecodeErrors: Int = 0
     private var totalDecodeErrors: Int = 0
     private var fallbackRequested: Bool = false
+    /// Last VideoToolbox OSStatus seen, and where it came from. The status is the
+    /// only thing that identifies *why* HEVC decode fails, and it previously went
+    /// only to NSLog — which iOS redacts as <private>, making it unreadable off
+    /// the device. Surfaced through diagnosticSummary() and onLog instead.
+    private var lastDecodeStatus: OSStatus = noErr
+    private var lastDecodeStatusSource: String = "-"
 
     // Diagnostics: track VT pool behavior
     private var decodeCount: Int = 0
@@ -151,7 +157,7 @@ public final class H265Decoder: @unchecked Sendable {
         pendingLock.lock()
         let queued = queuedBlocks
         pendingLock.unlock()
-        return "decoded=\(decodeCount) uniqueBufs=\(uniqueBufferAddresses.count) queued=\(queued) entries=\(decodeEntryCount) threads=\(callerThreads.count) drops(time=\(timeGateDrops) queue=\(queueFullDrops) mem=\(memoryGateDrops)) errs(consecutive=\(consecutiveDecodeErrors) total=\(totalDecodeErrors)) mem=\(availMB)MB"
+        return "decoded=\(decodeCount) uniqueBufs=\(uniqueBufferAddresses.count) queued=\(queued) entries=\(decodeEntryCount) threads=\(callerThreads.count) drops(time=\(timeGateDrops) queue=\(queueFullDrops) mem=\(memoryGateDrops)) errs(consecutive=\(consecutiveDecodeErrors) total=\(totalDecodeErrors) last=\(lastDecodeStatus)@\(lastDecodeStatusSource)) vps=\(vps?.count ?? -1) sps=\(sps?.count ?? -1) pps=\(pps?.count ?? -1) mem=\(availMB)MB"
     }
 
     private func _decode(annexBData: Data) {
@@ -271,9 +277,13 @@ public final class H265Decoder: @unchecked Sendable {
             NSLog("[h265] Failed to create decompression session: %d", status)
             consecutiveDecodeErrors += 1
             totalDecodeErrors += 1
+            lastDecodeStatus = status
+            lastDecodeStatusSource = "session-create"
+            onLog?("[h265] session creation failed status=\(status) consecutive=\(consecutiveDecodeErrors)")
             if consecutiveDecodeErrors >= 5 && !fallbackRequested {
                 fallbackRequested = true
                 NSLog("[h265] Session creation failing, requesting codec fallback")
+                onLog?("[h265] fallback triggered by session-create failures, last status=\(status)")
                 onCodecFallbackNeeded?()
             }
             return
@@ -358,12 +368,20 @@ public final class H265Decoder: @unchecked Sendable {
                     if status != noErr {
                         self?.consecutiveDecodeErrors += 1
                         self?.totalDecodeErrors += 1
+                        self?.lastDecodeStatus = status
+                        self?.lastDecodeStatusSource = "decode"
                         let consecutive = self?.consecutiveDecodeErrors ?? 0
                         let total = self?.totalDecodeErrors ?? 0
                         NSLog("[h265-diag] VT decode error: %d (consecutive=%d total=%d)", status, consecutive, total)
+                        // Report the first few off-device too. Only the first few:
+                        // a failing stream produces these at frame rate.
+                        if consecutive <= 5 {
+                            self?.onLog?("[h265] VT decode error status=\(status) consecutive=\(consecutive) total=\(total)")
+                        }
                         if consecutive >= 5, self?.fallbackRequested == false {
                             self?.fallbackRequested = true
                             NSLog("[h265] Consecutive decode errors >= 5, requesting codec fallback")
+                            self?.onLog?("[h265] fallback triggered after 5 consecutive errors, last status=\(status)")
                             self?.onCodecFallbackNeeded?()
                         }
                         // Session recreation must NOT be called from inside the VT
