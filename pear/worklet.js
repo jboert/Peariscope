@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v52-hyperdht-6330-20260808'
+const WORKLET_VERSION = 'v55-punch-abort-diag-20260810'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -563,7 +563,20 @@ class PeariscopeWorklet {
     }
 
     const dhtOpts = {
-      port: 49800 + Math.floor(Math.random() * 1000)
+      port: 49800 + Math.floor(Math.random() * 1000),
+      // Random punching is the only way through a symmetric ("randomized") NAT,
+      // and hyperdht throttles it hard by default: one punch in flight
+      // (_randomPunchLimit = 1) and a minimum 20s gap between attempts. Inside
+      // our 90s connect window that allows roughly four port guesses, and each
+      // guess is probabilistic — which is exactly what an intermittent
+      // HOLEPUNCH_ABORTED looks like.
+      //
+      // This host reports randomized=yes (its external port varies per
+      // destination), so every connection to it depends on that path. Tighten
+      // the interval so a connect attempt gets tens of tries instead of four.
+      // Upstream's 20s is a politeness default for long-lived sidecars, not a
+      // protocol requirement; the punches are a few UDP packets each.
+      randomPunchInterval: 3000
     }
 
     // Use Pear sidecar's DHT config if available (running inside pear-runtime).
@@ -614,6 +627,33 @@ class PeariscopeWorklet {
     const swarmOpts = {
       keyPair: this.keyPair,
       dht  // pass our pre-configured DHT instance
+    }
+
+    // Instrumentation: we log nothing until a connection fully succeeds, so a
+    // peer that dials us and never completes the handshake is invisible — the
+    // host log just shows silence, which is indistinguishable from "nothing
+    // ever arrived". hyperswarm calls firewall() on both paths: with a payload
+    // for an INBOUND handshake, and with null before an OUTBOUND dial. Returning
+    // false allows the connection (see hyperswarm's allowAll()), so this is
+    // purely observational — it must never return true.
+    swarmOpts.firewall = (remotePublicKey, payload) => {
+      try {
+        const key = remotePublicKey ? b4a.toString(remotePublicKey, 'hex').slice(0, 16) : 'unknown'
+        if (payload) {
+          const fw = payload.firewall
+          const hp = payload.holepunch
+          sendLog('INBOUND connect request from ' + key +
+            ' remoteFirewall=' + (fw === undefined ? '?' : fw) +
+            ' holepunch=' + (hp ? ('relays=' + ((hp.relays && hp.relays.length) || 0)) : 'null') +
+            ' relayThrough=' + (payload.relayThrough ? 'yes' : 'no') +
+            ' addrs=' + ((payload.addresses4 && payload.addresses4.length) || 0))
+        } else {
+          sendLog('OUTBOUND dial check for ' + key)
+        }
+      } catch (e) {
+        sendLog('firewall log error: ' + (e.message || e))
+      }
+      return false // allow — observational only
     }
 
     // No relayThrough. It takes a relay peer's Noise public key, and we have
@@ -845,6 +885,23 @@ class PeariscopeWorklet {
       this.discovery = this.swarm.join(topic, { server: true, client: false })
       this.discovery.flushed().then(() => {
         sendLog('DHT re-announce flushed for code: ' + code)
+        // Log the relays we advertise for holepunch coordination. A dialing peer
+        // reaches us THROUGH these; if they are empty or stale, connect requests
+        // never arrive and the host sees nothing at all.
+        try {
+          const server = this.swarm && this.swarm.server
+          const ann = server && server._announcer
+          const relays = (ann && ann.relays) || null
+          const dht = this.swarm && this.swarm.dht
+          sendLog('Announce state: relays=' + (relays ? relays.length : 'n/a') +
+            ' firewalled=' + (dht ? dht.firewalled : '?') +
+            ' randomized=' + (dht ? dht.randomized : '?') +
+            ' ephemeral=' + (dht ? dht.ephemeral : '?') +
+            ' natHost=' + ((dht && dht._nat && dht._nat.host) || 'null') +
+            ' natPort=' + ((dht && dht._nat && dht._nat.port) || 0))
+        } catch (e) {
+          sendLog('Announce state log error: ' + (e.message || e))
+        }
       }).catch(err => {
         sendLog('DHT re-announce flush error: ' + (err.message || err))
       })
