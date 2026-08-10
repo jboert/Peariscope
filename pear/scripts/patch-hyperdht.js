@@ -151,6 +151,31 @@ const patches = [
   },
   {
     file: 'holepuncher.js',
+    name: 'probe-addresses',
+    anchor: `    let tries = 0
+
+    while (this.punching && tries++ < 10) {`,
+    insert: `    // [peariscope] What the punch is actually aimed at. The loop below skips
+    // unverified addresses on 3 of every 4 ticks, so an unverified address gets
+    // ~2 packets across the whole 10s rather than ~10 — a materially thinner
+    // punch than the try count suggests.
+    try {
+      const addrs = (this.remoteAddresses || [])
+        .map(a => a.host + ':' + a.port + (a.verified ? ' verified' : ' UNVERIFIED'))
+        .join(', ')
+      const logMsg = 'PROBE-ADDRS: initiator=' + this.isInitiator +
+        ' count=' + (this.remoteAddresses ? this.remoteAddresses.length : 0) +
+        ' [' + addrs + ']'
+      ${EMIT}
+    } catch (e) {}
+
+    let tries = 0
+
+    while (this.punching && tries++ < 10) {`,
+    replaceAnchor: true
+  },
+  {
+    file: 'holepuncher.js',
     name: 'destroy-snapshot',
     anchor: `  destroy() {
     if (this.destroyed) return

@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v61-goodbye-20260810'
+const WORKLET_VERSION = 'v62-relay-fallback-20260810'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -35,6 +35,7 @@ const MSG = {
   APPROVE_PEER: 0x0B,
   CONNECT_LOCAL_PEER: 0x0C,
   REANNOUNCE: 0x0D,
+  SET_RELAY_KEY: 0x0E,
 
   // Worklet -> Native
   HOSTING_STARTED: 0x81,
@@ -55,6 +56,13 @@ const MSG = {
 
 let ipcPipe = null
 let recvBuf = Buffer.alloc(0)
+
+// Public key of a node running blind-relay (pear/relay-server.js), used as a
+// fallback when holepunching fails. Native sends it via SET_RELAY_KEY before
+// the swarm is created. Null means holepunch-only — the previous behaviour, and
+// still the default when no relay is configured. Declared up here because the
+// swarm is built well above where it would otherwise sit.
+let RELAY_PUBLIC_KEY = null
 
 // --- Suspension hygiene ---
 // Bare's event loop only reaches `idle` — the point at which the OS suspends us
@@ -697,13 +705,31 @@ class PeariscopeWorklet {
       return false // allow — observational only
     }
 
-    // No relayThrough. It takes a relay peer's Noise public key, and we have
-    // no source of one: the previous implementation passed routing-table
-    // node ids, which are crypto_generichash(host, port) address hashes, not
-    // public keys — so every candidate failed PEER_NOT_FOUND and the pool was
-    // permanently empty. Connectivity is holepunch-only. Adding a real relay
-    // means a peer with a stable keypair we know the public key of (Keet uses
-    // other call participants; a two-peer app would need one we operate).
+    // Relay fallback. relayThrough takes a relay peer's Noise public key; the
+    // earlier attempt passed routing-table node ids — crypto_generichash(host,
+    // port) address hashes, not public keys — so every candidate failed
+    // PEER_NOT_FOUND and the pool was permanently empty. The key must come from
+    // a node actually running blind-relay (see pear/relay-server.js).
+    //
+    // This matters because hyperswarm already retries through a relay on
+    // HOLEPUNCH_ABORTED (shouldForceRelaying in hyperswarm/index.js) — the very
+    // error our punch-exhaustion failures produce. That retry has been dead
+    // code purely because relayThrough was null.
+    //
+    // Passed as a function so relaying stays a FALLBACK: hyperswarm's default
+    // wrapper uses the relay when a punch has already failed (force) or when
+    // the NAT is randomized. A direct connection is still preferred and the
+    // relay is upgraded away from once direct traffic flows.
+    if (RELAY_PUBLIC_KEY) {
+      swarmOpts.relayThrough = (force, swarm) => {
+        const use = force || swarm.dht.randomized
+        if (use) sendLog('Relay fallback engaged (force=' + !!force + ' randomized=' + swarm.dht.randomized + ')')
+        return use ? RELAY_PUBLIC_KEY : null
+      }
+      sendLog('Relay configured: ' + b4a.toString(RELAY_PUBLIC_KEY, 'hex').slice(0, 16) + '...')
+    } else {
+      sendLog('No relay configured — holepunch only, a failed punch has no fallback')
+    }
 
     this.swarm = new Hyperswarm(swarmOpts)
 
@@ -1851,6 +1877,28 @@ function handleFrame (frame) {
     case MSG.RESUME: {
       sendLog('RESUME received')
       worklet.resume().catch(e => sendLog('Resume error: ' + (e.message || e)))
+      break
+    }
+
+    case MSG.SET_RELAY_KEY: {
+      try {
+        const json = JSON.parse(rest.toString())
+        const hex = (json.relayKeyHex || '').trim()
+        if (!hex) {
+          RELAY_PUBLIC_KEY = null
+          sendLog('SET_RELAY_KEY: cleared — holepunch only')
+        } else if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+          // A malformed key would make every relay attempt fail in a way that
+          // looks like the relay being down, so reject it loudly instead.
+          sendLog('SET_RELAY_KEY: ignored, expected 64 hex chars, got ' + hex.length)
+        } else {
+          RELAY_PUBLIC_KEY = Buffer.from(hex, 'hex')
+          sendLog('SET_RELAY_KEY: ' + hex.slice(0, 16) + '...' +
+            (worklet.swarm ? ' (swarm already up — applies on next start)' : ''))
+        }
+      } catch (e) {
+        sendLog('SET_RELAY_KEY: JSON parse error: ' + (e.message || e))
+      }
       break
     }
 

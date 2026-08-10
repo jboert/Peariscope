@@ -537,6 +537,8 @@ public final class NetworkManager: ObservableObject {
     // MARK: - DHT Node Cache
 
     private static let dhtCacheKey = "peariscope.cachedDhtNodes"
+    /// Deliberately a plain, memorable name — it is set by hand via `defaults write`.
+    private static let relayKeyDefaultsKey = "PeariscopeRelayKey"
     /// Nodes older than 7 days are expired
     private static let dhtNodeMaxAge: TimeInterval = 7 * 24 * 3600 * 1000 // ms (matches JS Date.now())
 
@@ -628,6 +630,30 @@ public final class NetworkManager: ObservableObject {
         if let data = try? JSONSerialization.data(withJSONObject: nodes) {
             UserDefaults.standard.set(data, forKey: Self.dhtCacheKey)
         }
+    }
+
+    /// Public key of the relay node to fall back to when holepunching fails,
+    /// or nil for holepunch-only.
+    ///
+    /// Read from UserDefaults so it can be set without a UI:
+    ///     defaults write com.peariscope.app PeariscopeRelayKey <64-hex>
+    /// Both the host and the viewer must point at the same relay. See
+    /// pear/relay-server.js for running one.
+    ///
+    /// Validated here as well as in the worklet: a malformed key would make
+    /// every relay attempt fail in a way indistinguishable from the relay
+    /// being down.
+    static func configuredRelayKey() -> String? {
+        guard let key = UserDefaults.standard.string(forKey: relayKeyDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else {
+            return nil
+        }
+        let isHex = key.count == 64 && key.allSatisfy { $0.isHexDigit }
+        guard isHex else {
+            NSLog("[net] PeariscopeRelayKey ignored: expected 64 hex chars, got %d", key.count)
+            return nil
+        }
+        return key
     }
 
     /// Load cached DHT nodes, filtering expired entries.
@@ -722,6 +748,17 @@ public final class NetworkManager: ObservableObject {
                 useBareKit = true
                 diagWrite("BareKit started OK, isAlive=\(bareBridge.isAlive)")
                 debugLog("[net] Started Pear runtime via BareKit")
+
+                // Relay key must reach the worklet before it builds the swarm,
+                // so this goes first. Without it a failed punch has no fallback
+                // — hyperswarm's retry-through-relay on HOLEPUNCH_ABORTED is
+                // inert unless relayThrough is set.
+                if let relayKey = Self.configuredRelayKey() {
+                    debugLog("[net] Relay configured: \(relayKey.prefix(16))...")
+                    bareBridge.setRelayKey(relayKey)
+                } else {
+                    debugLog("[net] No relay configured — holepunch only")
+                }
 
                 // Send cached DHT nodes + keypair to worklet for faster bootstrap
                 // and identity persistence (same keypair = same NAT mappings on CGNAT)

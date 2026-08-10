@@ -18,6 +18,7 @@ private enum NativeToWorklet: UInt8 {
     case approvePeer = 0x0B
     case connectLocalPeer = 0x0C
     case reannounce = 0x0D
+    case setRelayKey = 0x0E
 }
 
 /// Message types received from the JS worklet.
@@ -360,6 +361,13 @@ public final class BareWorkletBridge: @unchecked Sendable {
     ///   indistinguishable after the fact.
     public func disconnect(peerKeyHex: String, reason: String = "unspecified") {
         sendCommand(.disconnect, json: ["peerKeyHex": peerKeyHex, "reason": reason])
+    }
+
+    /// Tell the worklet which relay node to fall back to when a punch fails.
+    /// Must be sent before the swarm is created to take effect on this run.
+    /// An empty string clears it, returning to holepunch-only.
+    public func setRelayKey(_ relayKeyHex: String) {
+        sendCommand(.setRelayKey, json: ["relayKeyHex": relayKeyHex])
     }
 
     /// Disconnect all peers and leave all swarm topics.
