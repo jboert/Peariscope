@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v57-suspend-hygiene-20260810'
+const WORKLET_VERSION = 'v58-abort-reason-diag-20260810'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {

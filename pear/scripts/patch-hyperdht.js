@@ -93,6 +93,62 @@ const patches = [
     replaceAnchor: true
   },
   {
+    file: 'connect.js',
+    name: 'abort-reason-real',
+    anchor: `  destroyPuncher(c)
+  maybeDestroyEncryptedSocket(c, err)
+}`,
+    insert: `  // [peariscope] THE reason a connection failed. destroyPuncher() below fires
+  // the puncher's onabort, which destroys the socket with a generic
+  // HOLEPUNCH_ABORTED — so the real error passed to maybeDestroyEncryptedSocket
+  // on the next line always arrives after the socket is already gone and is
+  // never surfaced. Log it here, before it is masked.
+  try {
+    const logMsg = 'ABORT-REASON: code=' + ((err && err.code) || 'none') +
+      ' msg=' + ((err && err.message) || String(err))
+    ${EMIT}
+  } catch (e) {}
+  destroyPuncher(c)
+  maybeDestroyEncryptedSocket(c, err)
+}`,
+    replaceAnchor: true
+  },
+  {
+    file: 'connect.js',
+    name: 'probe-throw',
+    anchor: `    destroyPuncher(c)
+    // TODO: we should retry here with some of the other relays, bail for now`,
+    insert: `    // [peariscope] probeRound() threw. Distinct from the roundPunch catch
+    // below — this fires before any punch is attempted, which matches the
+    // observed punching=false aborts.
+    try {
+      const logMsg = 'PROBE-THROW: code=' + ((err && err.code) || 'none') +
+        ' msg=' + ((err && err.message) || String(err))
+      ${EMIT}
+    } catch (e) {}
+    destroyPuncher(c)
+    // TODO: we should retry here with some of the other relays, bail for now`,
+    replaceAnchor: true
+  },
+  {
+    file: 'connect.js',
+    name: 'probe-null',
+    anchor: `  if (isDone(c) || !probe) return
+  const { token, peerAddress } = probe`,
+    insert: `  // [peariscope] probeRound() has many silent \`return null\` paths. Without
+  // this, giving up here is indistinguishable from never having got this far.
+  if (isDone(c) || !probe) {
+    try {
+      const logMsg = 'PROBE-NULL: done=' + isDone(c) + ' probe=' + (probe ? 'ok' : 'null') +
+        ' round=' + c.round
+      ${EMIT}
+    } catch (e) {}
+  }
+  if (isDone(c) || !probe) return
+  const { token, peerAddress } = probe`,
+    replaceAnchor: true
+  },
+  {
     file: 'holepuncher.js',
     name: 'puncher-destroy',
     anchor: '      this.onabort()',
