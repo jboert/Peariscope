@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v60-disconnect-origin-20260810'
+const WORKLET_VERSION = 'v61-goodbye-20260810'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -1167,6 +1167,36 @@ class PeariscopeWorklet {
     this._pendingConnection = { code, timeout, statusInterval, discovery, startedAt: Date.now() }
   }
 
+  /**
+   * Announce why we are leaving, then tear the mux down.
+   *
+   * The send is best effort: destroy() drops whatever is still buffered, so the
+   * frame gets a short grace period to reach the wire. A disconnect must not
+   * wait on a diagnostic, so the delay is small and failure is silent — the far
+   * end simply falls back to origin=remote-or-fault, which is what it reported
+   * before this channel existed.
+   */
+  // Keyed by peer, not a single slot: disconnectAllPeers tears down every peer
+  // in a loop and the stream closes all land after it, so one slot would
+  // attribute the whole batch to whichever peer happened to be last.
+  _markLocalTeardown (keyHex, reason) {
+    if (!this._localTeardowns) this._localTeardowns = new Map()
+    this._localTeardowns.set(keyHex, reason || 'unspecified')
+  }
+
+  _sayGoodbye (mux, reason) {
+    try {
+      mux.send(CH_GOODBYE, Buffer.from(String(reason || 'unspecified'), 'utf8'))
+    } catch (e) {
+      // Stream already gone — nothing to announce to.
+    }
+    setTimeout(() => {
+      try {
+        mux.destroy()
+      } catch (e) {}
+    }, GOODBYE_FLUSH_MS)
+  }
+
   disconnectAllPeers (reason) {
     // The reason matters when reading logs after the fact: a session ending
     // because the user pressed Disconnect looks identical to one dropped by a
@@ -1175,8 +1205,8 @@ class PeariscopeWorklet {
       ' peers=' + this.peers.size + ' topic=' + (this._lastViewerTopic ? 'yes' : 'no'))
     // Destroy all peer muxers
     for (const [keyHex, peer] of this.peers) {
-      this._localTeardown = { keyHex, reason: reason || 'unspecified' }
-      peer.mux.destroy()
+      this._markLocalTeardown(keyHex, reason)
+      this._sayGoodbye(peer.mux, reason)
       sendLog('Disconnected peer: ' + keyHex.slice(0, 16) + '...')
     }
     this.peers.clear()
@@ -1199,8 +1229,8 @@ class PeariscopeWorklet {
   disconnectPeer (peerKeyHex, reason) {
     const peer = this.peers.get(peerKeyHex)
     if (peer) {
-      this._localTeardown = { keyHex: peerKeyHex, reason: reason || 'unspecified' }
-      peer.mux.destroy()
+      this._markLocalTeardown(peerKeyHex, reason)
+      this._sayGoodbye(peer.mux, reason)
       this.peers.delete(peerKeyHex)
       sendLog('Disconnected peer: ' + peerKeyHex.slice(0, 16) + '... reason=' + (reason || 'unspecified'))
     }
@@ -1335,21 +1365,42 @@ class PeariscopeWorklet {
       sendFrame(MSG.STREAM_DATA_OUT, { streamId, channel: 3 }, data)
     })
 
+    // The peer told us it is leaving on purpose. Record it so the close handler
+    // below can report origin=remote instead of lumping a deliberate departure
+    // in with a dropped connection.
+    mux.onChannel(CH_GOODBYE, (data) => {
+      const remoteReason = data && data.length ? data.toString('utf8').slice(0, 64) : 'unspecified'
+      if (!this._remoteGoodbyes) this._remoteGoodbyes = new Map()
+      this._remoteGoodbyes.set(keyHex, remoteReason)
+      sendLog('GOODBYE from ' + keyHex.slice(0, 16) + '... reason=' + remoteReason)
+    })
+
     stream.on('close', () => {
       this.peers.delete(keyHex)
-      // _localTeardown is set by disconnectPeer/disconnectAllPeers just before
+      // _localTeardowns is set by disconnectPeer/disconnectAllPeers just before
       // they destroy the mux. Its absence means the close came from the other
       // end or from a fault — which is the distinction worth having in a log.
-      const local = this._localTeardown && this._localTeardown.keyHex === keyHex
-        ? this._localTeardown.reason
-        : null
-      if (local) this._localTeardown = null
+      const local = this._localTeardowns ? this._localTeardowns.get(keyHex) : null
+      if (local) this._localTeardowns.delete(keyHex)
+
+      // A goodbye means the peer chose to leave. Without one, the close is
+      // either a fault or a peer too old to announce itself — which is why this
+      // says remote-or-fault rather than claiming to know.
+      const remote = this._remoteGoodbyes ? this._remoteGoodbyes.get(keyHex) : null
+      if (remote) this._remoteGoodbyes.delete(keyHex)
+
+      let origin
+      if (local) origin = 'origin=local reason=' + local
+      else if (remote) origin = 'origin=remote reason=' + remote
+      else origin = 'origin=remote-or-fault'
+
       sendFrame(MSG.PEER_DISCONNECTED, {
         peerKeyHex: keyHex,
-        reason: local ? 'Local disconnect: ' + local : 'Stream closed'
+        reason: local
+          ? 'Local disconnect: ' + local
+          : (remote ? 'Peer disconnect: ' + remote : 'Stream closed')
       })
-      sendLog('Peer disconnected: ' + keyHex.slice(0, 16) + '... ' +
-        (local ? 'origin=local reason=' + local : 'origin=remote-or-fault'))
+      sendLog('Peer disconnected: ' + keyHex.slice(0, 16) + '... ' + origin)
 
       if (this.isHosting && this.connectionInfo) {
         const { topic } = this.connectionInfo
@@ -1468,6 +1519,18 @@ class PeariscopeWorklet {
 // --- Stream Multiplexer ---
 
 const CHANNEL_HEADER_SIZE = 5
+
+// Channels 0-3 carry app traffic. 4 is a goodbye: a UTF-8 reason sent just
+// before we tear the mux down, so the far end can log that the peer chose to
+// leave rather than guessing between that and a fault. Peers that predate this
+// channel drop the frame — _drainFrames only dispatches channels with a
+// registered handler — so it is safe to send to any version.
+const CH_GOODBYE = 4
+
+// How long to let the goodbye reach the wire before destroying the stream.
+// Best effort: destroy() discards anything still buffered, and no disconnect
+// should be delayed on account of a log line.
+const GOODBYE_FLUSH_MS = 50
 
 class StreamMux {
   constructor (stream) {
