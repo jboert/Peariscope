@@ -75,6 +75,24 @@ const patches = [
     replaceAnchor: true
   },
   {
+    file: 'connect.js',
+    name: 'roundpunch-throw',
+    anchor: `    destroyPuncher(c)
+    // TODO: retry with another relay?`,
+    insert: `    // [peariscope] roundPunch() threw before punch() was ever called
+    // (observed: punching=false with both NATs CONSISTENT, which rules out
+    // PROBE_TIMEOUT and DOUBLE_RANDOMIZED_NATS). This error is otherwise
+    // swallowed into a bare HOLEPUNCH_ABORTED with no reason.
+    try {
+      const logMsg = 'ROUNDPUNCH-THROW: code=' + ((err && err.code) || 'none') +
+        ' msg=' + ((err && err.message) || String(err))
+      ${EMIT}
+    } catch (e) {}
+    destroyPuncher(c)
+    // TODO: retry with another relay?`,
+    replaceAnchor: true
+  },
+  {
     file: 'holepuncher.js',
     name: 'puncher-destroy',
     anchor: '      this.onabort()',
