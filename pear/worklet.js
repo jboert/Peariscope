@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v56-roundpunch-throw-diag-20260810'
+const WORKLET_VERSION = 'v57-suspend-hygiene-20260810'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -55,6 +55,40 @@ const MSG = {
 
 let ipcPipe = null
 let recvBuf = Buffer.alloc(0)
+
+// --- Suspension hygiene ---
+// Bare's event loop only reaches `idle` — the point at which the OS suspends us
+// instead of killing us — once no referenced handles remain. Every repeating
+// timer holds such a reference, so all of them must stop on suspend and be
+// restarted on resume. Per docs.pears.com "Handle App Suspension":
+//   "Any surviving reference prevents suspension, causing the OS to
+//    force-terminate the app."
+// Per-stream keepalives are created ad hoc, so they are tracked here to be
+// stoppable in bulk. The IPC channel is the one handle that must survive, so it
+// is unref'd rather than closed (the docs' Pattern A).
+const keepAliveTimers = new Set()
+
+function stopKeepAlive (timer) {
+  clearInterval(timer)
+  keepAliveTimers.delete(timer)
+}
+
+function unrefIPC () {
+  // The stdin/stdout fallback shim has no unref; nothing to do there.
+  try {
+    if (ipcPipe && typeof ipcPipe.unref === 'function') ipcPipe.unref()
+  } catch (e) {
+    sendLog('IPC unref error: ' + (e.message || e))
+  }
+}
+
+function refIPC () {
+  try {
+    if (ipcPipe && typeof ipcPipe.ref === 'function') ipcPipe.ref()
+  } catch (e) {
+    sendLog('IPC ref error: ' + (e.message || e))
+  }
+}
 
 // Try multiple patterns to find the IPC pipe
 if (typeof IPC !== 'undefined') {
@@ -499,6 +533,13 @@ class PeariscopeWorklet {
     sendLog('Injected ' + added + '/' + nodes.length + ' cached DHT nodes')
   }
 
+  _stopDhtNodeReporting () {
+    if (this._dhtNodeReportInterval) {
+      clearInterval(this._dhtNodeReportInterval)
+      this._dhtNodeReportInterval = null
+    }
+  }
+
   _startDhtNodeReporting () {
     if (this._dhtNodeReportInterval) return
     // Report DHT routing table nodes to native every 60s for caching
@@ -927,6 +968,61 @@ class PeariscopeWorklet {
     }
   }
 
+  /**
+   * Release every referenced handle so the event loop can drain to `idle`.
+   * Until it does, the OS force-terminates rather than suspends us.
+   *
+   * swarm.suspend() disconnects peers, so the per-stream keepalives are stopped
+   * outright rather than paused — resume brings up new streams with new ones.
+   */
+  async suspend () {
+    if (this._suspended) return
+    this._suspended = true
+
+    this._stopReannounceTimer()
+    this._stopDhtNodeReporting()
+
+    const timers = keepAliveTimers.size
+    for (const timer of keepAliveTimers) clearInterval(timer)
+    keepAliveTimers.clear()
+
+    if (this.swarm) {
+      try {
+        await this.swarm.suspend()
+      } catch (e) {
+        sendLog('Swarm suspend error: ' + (e.message || e))
+      }
+    }
+
+    // Unref'd, not closed: native still needs this channel to send us RESUME.
+    unrefIPC()
+    sendLog('Suspended (stopped ' + timers + ' keepalive timers, reannounce, dht reporting)')
+  }
+
+  async resume () {
+    if (!this._suspended) return
+    this._suspended = false
+    refIPC()
+
+    if (this.swarm) {
+      try {
+        await this.swarm.resume()
+      } catch (e) {
+        sendLog('Swarm resume error: ' + (e.message || e))
+      }
+    }
+
+    this._startDhtNodeReporting()
+
+    // swarm.resume() does NOT re-announce topics, so a host stays invisible on
+    // the DHT until we do it explicitly.
+    if (this.isHosting && this.connectionInfo) {
+      this._startReannounceTimer()
+      this.reannounce()
+    }
+    sendLog('Resumed')
+  }
+
   _cleanupHosting () {
     sendLog('Cleaning up hosting...')
 
@@ -1257,15 +1353,18 @@ class PeariscopeWorklet {
     // Mobile carrier NATs can expire in as little as 10s, so 15s was too slow.
     const keepAlive = setInterval(() => {
       if (stream.destroyed) {
-        clearInterval(keepAlive)
+        stopKeepAlive(keepAlive)
         return
       }
       try {
         mux.send(2, Buffer.alloc(0))
       } catch (e) {
-        clearInterval(keepAlive)
+        stopKeepAlive(keepAlive)
       }
     }, 5000)
+    // Tracked so suspend() can stop it — an untracked 5s interval on its own
+    // keeps the event loop referenced forever.
+    keepAliveTimers.add(keepAlive)
 
     if (this._pendingConnection) {
       clearTimeout(this._pendingConnection.timeout)
@@ -1666,32 +1765,15 @@ function handleFrame (frame) {
 
     case MSG.SUSPEND: {
       sendLog('SUSPEND received')
-      if (worklet.swarm) {
-        // Use Hyperswarm's native suspend — properly disconnects all peers,
-        // stops discovery, and preserves state for fast resume.
-        // Previous implementation only paused individual streams.
-        worklet.swarm.suspend().then(() => {
-          sendLog('Swarm suspended')
-        }).catch(e => {
-          sendLog('Swarm suspend error: ' + (e.message || e))
-        })
-      }
+      // Native should let this settle before calling Bare.suspend(), otherwise
+      // the loop has not drained yet and the OS kills us instead of suspending.
+      worklet.suspend().catch(e => sendLog('Suspend error: ' + (e.message || e)))
       break
     }
 
     case MSG.RESUME: {
       sendLog('RESUME received')
-      if (worklet.swarm) {
-        // Use Hyperswarm's native resume — reconnects peers and resumes discovery.
-        worklet.swarm.resume().then(() => {
-          sendLog('Swarm resumed')
-          // Re-announce hosting topic after resume — swarm.resume() does NOT
-          // re-announce topics automatically, so the host becomes invisible on DHT.
-          worklet.reannounce()
-        }).catch(e => {
-          sendLog('Swarm resume error: ' + (e.message || e))
-        })
-      }
+      worklet.resume().catch(e => sendLog('Resume error: ' + (e.message || e)))
       break
     }
 
@@ -1734,13 +1816,23 @@ if (typeof Bare !== 'undefined') {
     reply(Buffer.from('pong:' + msg))
   })
 
+  // Native may call Bare.suspend() without first sending MSG.SUSPEND, so this
+  // path has to release the timers too — unref'ing IPC alone leaves three
+  // repeating intervals referenced and the loop never reaches `idle`.
+  // worklet.suspend() is idempotent, so both paths firing is harmless.
   Bare.on('suspend', () => {
     sendLog('Worklet suspended')
-    if (ipcPipe) ipcPipe.unref()
+    worklet.suspend().catch(e => sendLog('Suspend error: ' + (e.message || e)))
   })
 
   Bare.on('resume', () => {
     sendLog('Worklet resumed')
-    if (ipcPipe) ipcPipe.ref()
+    worklet.resume().catch(e => sendLog('Resume error: ' + (e.message || e)))
+  })
+
+  // Confirms the loop actually drained. Its absence after a suspend is the
+  // signal that something is still holding a handle.
+  Bare.on('idle', () => {
+    sendLog('Event loop idle — safe to be suspended by the OS')
   })
 }
