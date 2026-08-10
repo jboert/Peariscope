@@ -861,7 +861,7 @@ public final class NetworkManager: ObservableObject {
         // reconnects to the OLD peer instead of finding the new one.
         reconnectionManager.cancelAll()
         if useBareKit && bareBridge.isAlive {
-            bareBridge.disconnectAllPeers()
+            bareBridge.disconnectAllPeers(reason: "cleanup-before-connect")
         }
         connectedPeers.removeAll()
         isConnected = false
@@ -901,7 +901,7 @@ public final class NetworkManager: ObservableObject {
         _userInitiatedDisconnect = false
         reconnectionManager.cancelAll()
         if useBareKit && bareBridge.isAlive {
-            bareBridge.disconnectAllPeers()
+            bareBridge.disconnectAllPeers(reason: "cleanup-before-local-connect")
         }
         connectedPeers.removeAll()
         isConnected = false
@@ -1046,7 +1046,7 @@ public final class NetworkManager: ObservableObject {
         // connectedPeers may already be empty (peer disconnected before us),
         // but JS may still have the topic joined → stale reconnections.
         if useBareKit && bareBridge.isAlive {
-            bareBridge.disconnectAllPeers()
+            bareBridge.disconnectAllPeers(reason: "user-pressed-disconnect")
         }
         connectedPeers.removeAll()
         peerStreamIds.removeAll()

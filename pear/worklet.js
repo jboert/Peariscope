@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v59-punch-truth-20260810'
+const WORKLET_VERSION = 'v60-disconnect-origin-20260810'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -1167,10 +1167,15 @@ class PeariscopeWorklet {
     this._pendingConnection = { code, timeout, statusInterval, discovery, startedAt: Date.now() }
   }
 
-  disconnectAllPeers () {
-    sendLog('disconnectAllPeers: peers=' + this.peers.size + ' topic=' + (this._lastViewerTopic ? 'yes' : 'no'))
+  disconnectAllPeers (reason) {
+    // The reason matters when reading logs after the fact: a session ending
+    // because the user pressed Disconnect looks identical to one dropped by a
+    // fault unless we say which it was.
+    sendLog('disconnectAllPeers: reason=' + (reason || 'unspecified') +
+      ' peers=' + this.peers.size + ' topic=' + (this._lastViewerTopic ? 'yes' : 'no'))
     // Destroy all peer muxers
     for (const [keyHex, peer] of this.peers) {
+      this._localTeardown = { keyHex, reason: reason || 'unspecified' }
       peer.mux.destroy()
       sendLog('Disconnected peer: ' + keyHex.slice(0, 16) + '...')
     }
@@ -1191,12 +1196,13 @@ class PeariscopeWorklet {
     this._connectionSucceeded = false
   }
 
-  disconnectPeer (peerKeyHex) {
+  disconnectPeer (peerKeyHex, reason) {
     const peer = this.peers.get(peerKeyHex)
     if (peer) {
+      this._localTeardown = { keyHex: peerKeyHex, reason: reason || 'unspecified' }
       peer.mux.destroy()
       this.peers.delete(peerKeyHex)
-      sendLog('Disconnected peer: ' + peerKeyHex.slice(0, 16) + '...')
+      sendLog('Disconnected peer: ' + peerKeyHex.slice(0, 16) + '... reason=' + (reason || 'unspecified'))
     }
 
     // Leave the swarm topic so the host doesn't reconnect to us
@@ -1331,11 +1337,19 @@ class PeariscopeWorklet {
 
     stream.on('close', () => {
       this.peers.delete(keyHex)
+      // _localTeardown is set by disconnectPeer/disconnectAllPeers just before
+      // they destroy the mux. Its absence means the close came from the other
+      // end or from a fault — which is the distinction worth having in a log.
+      const local = this._localTeardown && this._localTeardown.keyHex === keyHex
+        ? this._localTeardown.reason
+        : null
+      if (local) this._localTeardown = null
       sendFrame(MSG.PEER_DISCONNECTED, {
         peerKeyHex: keyHex,
-        reason: 'Stream closed'
+        reason: local ? 'Local disconnect: ' + local : 'Stream closed'
       })
-      sendLog('Peer disconnected: ' + keyHex.slice(0, 16) + '...')
+      sendLog('Peer disconnected: ' + keyHex.slice(0, 16) + '... ' +
+        (local ? 'origin=local reason=' + local : 'origin=remote-or-fault'))
 
       if (this.isHosting && this.connectionInfo) {
         const { topic } = this.connectionInfo
@@ -1674,9 +1688,9 @@ function handleFrame (frame) {
       try {
         const json = JSON.parse(rest.toString())
         if (json.peerKeyHex === '*') {
-          worklet.disconnectAllPeers()
+          worklet.disconnectAllPeers(json.reason)
         } else {
-          worklet.disconnectPeer(json.peerKeyHex)
+          worklet.disconnectPeer(json.peerKeyHex, json.reason)
         }
       } catch (e) {
         sendLog('DISCONNECT: JSON parse error: ' + (e.message || e))

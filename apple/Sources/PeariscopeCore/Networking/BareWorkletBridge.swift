@@ -355,13 +355,16 @@ public final class BareWorkletBridge: @unchecked Sendable {
         sendCommand(.connectLocalPeer, json: payload)
     }
 
-    public func disconnect(peerKeyHex: String) {
-        sendCommand(.disconnect, json: ["peerKeyHex": peerKeyHex])
+    /// - Parameter reason: why this is happening, carried into the worklet log.
+    ///   Without it, a user pressing Disconnect and a fault-driven teardown are
+    ///   indistinguishable after the fact.
+    public func disconnect(peerKeyHex: String, reason: String = "unspecified") {
+        sendCommand(.disconnect, json: ["peerKeyHex": peerKeyHex, "reason": reason])
     }
 
     /// Disconnect all peers and leave all swarm topics.
-    public func disconnectAllPeers() {
-        sendCommand(.disconnect, json: ["peerKeyHex": "*"])
+    public func disconnectAllPeers(reason: String = "unspecified") {
+        sendCommand(.disconnect, json: ["peerKeyHex": "*", "reason": reason])
     }
 
     /// Maximum payload size per IPC chunk. Must be well under the pipe buffer (64KB on macOS).
