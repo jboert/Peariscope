@@ -643,14 +643,35 @@ public final class NetworkManager: ObservableObject {
     /// Validated here as well as in the worklet: a malformed key would make
     /// every relay attempt fail in a way indistinguishable from the relay
     /// being down.
+    /// Sources, in order: UserDefaults, then `relay-key.txt` in Documents.
+    ///
+    /// The file exists because on iOS the preferences plist is owned by
+    /// cfprefsd, which rewrites external edits — so `defaults write` has no
+    /// equivalent on device. Documents is reachable over AFC, making the file
+    /// the only way to configure a device without a rebuild.
     static func configuredRelayKey() -> String? {
-        guard let key = UserDefaults.standard.string(forKey: relayKeyDefaultsKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else {
+        if let key = normalizedRelayKey(UserDefaults.standard.string(forKey: relayKeyDefaultsKey)) {
+            return key
+        }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        if let url = docs?.appendingPathComponent("relay-key.txt"),
+           let contents = try? String(contentsOf: url, encoding: .utf8),
+           let key = normalizedRelayKey(contents) {
+            NSLog("[net] Relay key loaded from Documents/relay-key.txt")
+            return key
+        }
+        return nil
+    }
+
+    /// Validated here as well as in the worklet: a malformed key would make
+    /// every relay attempt fail in a way indistinguishable from the relay
+    /// being down.
+    private static func normalizedRelayKey(_ raw: String?) -> String? {
+        guard let key = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else {
             return nil
         }
-        let isHex = key.count == 64 && key.allSatisfy { $0.isHexDigit }
-        guard isHex else {
-            NSLog("[net] PeariscopeRelayKey ignored: expected 64 hex chars, got %d", key.count)
+        guard key.count == 64, key.allSatisfy({ $0.isHexDigit }) else {
+            NSLog("[net] relay key ignored: expected 64 hex chars, got %d", key.count)
             return nil
         }
         return key
