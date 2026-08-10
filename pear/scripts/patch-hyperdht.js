@@ -65,7 +65,8 @@ const patches = [
       const FIREWALL_NAMES = ['UNKNOWN', 'OPEN', 'CONSISTENT', 'RANDOM']
       const logMsg = 'PUNCH-ABORT: remoteFirewall=' + (p ? (FIREWALL_NAMES[p.remoteFirewall] || p.remoteFirewall) : 'n/a') +
         ' localFirewall=' + (p && p.nat ? (FIREWALL_NAMES[p.nat.firewall] || p.nat.firewall) : 'n/a') +
-        ' punching=' + (p ? p.punching : 'n/a') +
+        ' punchingNow=' + (p ? p.punching : 'n/a') +
+        ' destroyed=' + (p ? p.destroyed : 'n/a') +
         ' connected=' + (p ? p.connected : 'n/a') +
         ' remoteAddrs=' + (p && p.remoteAddresses ? p.remoteAddresses.length : 0) +
         ' localAddrs=' + (p && p.nat && p.nat.addresses ? p.nat.addresses.length : 0)
@@ -150,17 +151,39 @@ const patches = [
   },
   {
     file: 'holepuncher.js',
+    name: 'destroy-snapshot',
+    anchor: `  destroy() {
+    if (this.destroyed) return
+    this.destroyed = true
+    this.punching = false`,
+    insert: `  destroy() {
+    // [peariscope] Snapshot BEFORE the flags are cleared. destroy() sets
+    // this.punching = false on its third line, so any log further down — including
+    // onabort()'s, which runs from inside this function — reads false
+    // unconditionally and says nothing about whether a punch was in flight.
+    const __wasPunching = this.punching
+    const __from = (new Error().stack || '').split('\\n').slice(2, 5)
+      .map(s => s.trim().replace(/^at\\s+/, '')).join(' <- ')
+
+    if (this.destroyed) return
+    this.destroyed = true
+    this.punching = false`,
+    replaceAnchor: true
+  },
+  {
+    file: 'holepuncher.js',
     name: 'puncher-destroy',
     anchor: '      this.onabort()',
-    insert: `      // [peariscope] The puncher was destroyed before connecting. Log the NAT
-      // view it had, to distinguish "never got a remote address" from
-      // "punched and got no reply".
+    insert: `      // [peariscope] The puncher was destroyed before connecting. Logs whether a
+      // punch was actually in flight, and which call site tore it down — the
+      // destroy() callers are spread across connect.js and are otherwise silent.
       try {
         const FIREWALL_NAMES = ['UNKNOWN', 'OPEN', 'CONSISTENT', 'RANDOM']
         const logMsg = 'PUNCHER-DESTROY: remoteFirewall=' + (FIREWALL_NAMES[this.remoteFirewall] || this.remoteFirewall) +
           ' localFirewall=' + (this.nat ? (FIREWALL_NAMES[this.nat.firewall] || this.nat.firewall) : 'n/a') +
           ' remoteAddrs=' + (this.remoteAddresses ? this.remoteAddresses.length : 0) +
-          ' punching=' + this.punching
+          ' wasPunching=' + __wasPunching +
+          ' from=' + __from
         ${EMIT}
       } catch (e) {}
       this.onabort()`,
