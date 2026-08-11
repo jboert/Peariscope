@@ -70,19 +70,33 @@ async function main () {
     }
   })
 
+  // Timestamps and a live session count, because the question this log has to
+  // answer is whether the two peers are ever connected AT THE SAME TIME.
+  // Relaying pairs them by token; two sessions that never overlap can never
+  // pair, and without timestamps that is invisible.
+  let live = 0
+  const stamp = () => new Date().toISOString().slice(11, 23)
+  const log = (msg) => console.log(`[${stamp()}] [relay] ${msg}`)
+
   const server = dht.createServer((socket) => {
     const remote = socket.remotePublicKey
       ? socket.remotePublicKey.toString('hex').slice(0, 16)
       : 'unknown'
-    console.log(`[relay] session opened from ${remote}...`)
+    live++
+    log(`session opened from ${remote}... (live=${live})`)
 
     const session = relayServer.accept(socket, { id: socket.publicKey })
 
+    // The event that matters: two peers met and were joined by token.
+    session.on('pair', (isInitiator, token, id) => {
+      log(`PAIRED ${remote}... initiator=${isInitiator} token=${token && token.toString('hex').slice(0, 12)}...`)
+    })
     session.on('error', (err) => {
-      console.log(`[relay] session error from ${remote}...: ${err.message}`)
+      log(`session error from ${remote}...: ${err.message}`)
     })
     session.on('close', () => {
-      console.log(`[relay] session closed from ${remote}...`)
+      live--
+      log(`session closed from ${remote}... (live=${live})`)
     })
 
     socket.on('error', () => { /* peer vanished; nothing to do */ })
