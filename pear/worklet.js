@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v64-stock-punch-20260811'
+const WORKLET_VERSION = 'v65-fast-retry-20260811'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -675,7 +675,21 @@ class PeariscopeWorklet {
 
     const swarmOpts = {
       keyPair: this.keyPair,
-      dht  // pass our pre-configured DHT instance
+      dht, // pass our pre-configured DHT instance
+
+      // Retry cadence. Stock is [1s, 5s, 15s, 10min] and, for a peer that has
+      // never connected, hyperswarm picks tier M on attempt 1 and tier L on
+      // attempts 2 and 3 (retry-timer.js _selectRetryTimer) — so a connection
+      // that only succeeds on the third punch spends ~35s of its ~42s total
+      // just waiting between attempts.
+      //
+      // Punches here fail in a fixed ~11s (_consistentProbe exhausting 10
+      // tries) and succeed on a later attempt with no other change, so waiting
+      // longer buys nothing. Someone is staring at a spinner the whole time.
+      //
+      // The last tier stays long: it only applies to explicit peers past
+      // attempt 3, where backing off is genuinely right.
+      backoffs: [1000, 3000, 6000, 30000]
     }
 
     // Instrumentation: we log nothing until a connection fully succeeds, so a
