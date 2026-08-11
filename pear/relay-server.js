@@ -82,8 +82,13 @@ async function main () {
     const remote = socket.remotePublicKey
       ? socket.remotePublicKey.toString('hex').slice(0, 16)
       : 'unknown'
+    // The public key does not identify which app this is — dht.connect() to the
+    // relay uses its own keypair, not the app's. The remote IP does, and
+    // "which side failed to show up" is the whole question.
+    const raw = socket.rawStream
+    const from = raw ? `${raw.remoteHost}:${raw.remotePort}` : 'unknown'
     live++
-    log(`session opened from ${remote}... (live=${live})`)
+    log(`session opened from ${remote}... addr=${from} (live=${live})`)
 
     // id MUST be the CLIENT's public key. Protomux matches channels on
     // protocol + id, and the client opens its channel with its own
