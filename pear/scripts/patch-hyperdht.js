@@ -151,47 +151,6 @@ const patches = [
   },
   {
     file: 'holepuncher.js',
-    name: 'force-random-punch',
-    anchor: `    const local = coerceFirewall(this.nat.firewall)
-    const remote = coerceFirewall(this.remoteFirewall)`,
-    insert: `    let local = coerceFirewall(this.nat.firewall)
-    let remote = coerceFirewall(this.remoteFirewall)
-
-    // [peariscope] EXPERIMENT, off unless global.__peariscopeForceRandomPunch.
-    // Not observational — this changes which punch strategy runs.
-    //
-    // Both ends classify as CONSISTENT, so _consistentProbe punches one address
-    // for 10s and gives up. But the address is only "verified" at HOST level
-    // (connect.js sets verified from peerAddress.host, not the port), so a
-    // verified address says nothing about that port being punchable. If the
-    // mapping is endpoint-dependent, the port we punch is simply the wrong one.
-    //
-    // The strategies below are role-paired, so the override has to be
-    // asymmetric or it accomplishes nothing:
-    //   initiator (phone)  -> pretend LOCAL is random  -> opens birthday sockets
-    //   responder (host)   -> pretend REMOTE is random -> sprays random ports
-    // Flipping both the same way leaves both spraying and neither listening.
-    if (
-      typeof global !== 'undefined' && global.__peariscopeForceRandomPunch &&
-      local === FIREWALL.CONSISTENT && remote === FIREWALL.CONSISTENT &&
-      // Both random paths below require a verified address; without one the
-      // override would fall through to a bare return and punch nothing at all,
-      // which is worse than the consistent probe it replaces.
-      this.remoteAddresses.some(a => a.verified)
-    ) {
-      if (this.isInitiator) local = FIREWALL.RANDOM
-      else remote = FIREWALL.RANDOM
-      try {
-        const logMsg = 'FORCE-RANDOM-PUNCH: initiator=' + this.isInitiator +
-          ' local=' + local + ' remote=' + remote +
-          ' (was CONSISTENT/CONSISTENT)'
-        ${EMIT}
-      } catch (e) {}
-    }`,
-    replaceAnchor: true
-  },
-  {
-    file: 'holepuncher.js',
     name: 'probe-addresses',
     anchor: `    let tries = 0
 

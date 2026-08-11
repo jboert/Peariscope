@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v63-force-random-punch-20260810'
+const WORKLET_VERSION = 'v64-stock-punch-20260811'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -56,23 +56,6 @@ const MSG = {
 
 let ipcPipe = null
 let recvBuf = Buffer.alloc(0)
-
-// EXPERIMENT (v63): both ends classify CONSISTENT, so hyperdht punches a single
-// address for 10s via _consistentProbe and gives up — the only failure mode
-// observed across every failed connection today. But an address is marked
-// "verified" from its HOST only (connect.js sets verified from
-// peerAddress.host, never the port), so verification never established that the
-// port we punch is reachable.
-//
-// This makes each side claim the randomizing role instead, which routes into
-// hyperdht's paths built for that case: the initiator opens 256 birthday
-// sockets, the responder sprays random ports for ~35s. If a connection that
-// reliably fails today succeeds with this on, the problem is NAT
-// classification, not infrastructure.
-//
-// Flip to false to restore stock behaviour. Delete once the question is settled
-// — this is a probe, not a fix.
-global.__peariscopeForceRandomPunch = true
 
 // Public key of a node running blind-relay (pear/relay-server.js), used as a
 // fallback when holepunching fails. Native sends it via SET_RELAY_KEY before
