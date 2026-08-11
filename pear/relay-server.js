@@ -85,7 +85,13 @@ async function main () {
     live++
     log(`session opened from ${remote}... (live=${live})`)
 
-    const session = relayServer.accept(socket, { id: socket.publicKey })
+    // id MUST be the CLIENT's public key. Protomux matches channels on
+    // protocol + id, and the client opens its channel with its own
+    // socket.publicKey (see hyperdht: relay.Client.from(sock, { id:
+    // sock.publicKey })). Passing our own key here means the ids never match,
+    // the channel closes on open, and every session dies in ~2ms with
+    // CHANNEL_CLOSED and no pairing.
+    const session = relayServer.accept(socket, { id: socket.remotePublicKey })
 
     // The event that matters: two peers met and were joined by token.
     session.on('pair', (isInitiator, token, id) => {
