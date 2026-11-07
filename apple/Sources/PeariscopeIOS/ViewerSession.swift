@@ -58,8 +58,12 @@ final class IOSViewerSession: ObservableObject {
     private let latencyTracker = LatencyTracker()
     private var detectedH265 = false
 
+    // Diagnostic: which session instance owns networkManager's callbacks.
+    private static var instanceSeq = 0
+    let instanceId: Int
+
     deinit {
-        CrashLog.write("IOSViewerSession.deinit — session deallocated")
+        CrashLog.write("IOSViewerSession.deinit — session #\(instanceId) deallocated")
         NSLog("[viewer] IOSViewerSession.deinit — session deallocated")
     }
 
@@ -146,7 +150,9 @@ final class IOSViewerSession: ObservableObject {
 
     init(networkManager: NetworkManager) {
         self.networkManager = networkManager
-        CrashLog.write("IOSViewerSession.init() — isConnected=\(networkManager.isConnected) peers=\(networkManager.connectedPeers.count)")
+        Self.instanceSeq += 1
+        self.instanceId = Self.instanceSeq
+        CrashLog.write("IOSViewerSession.init() #\(instanceId) — isConnected=\(networkManager.isConnected) peers=\(networkManager.connectedPeers.count)")
         // Don't set networkManager callbacks here! @StateObject creates throwaway
         // IOSViewerSession instances on every parent re-render. Those throwaways
         // would overwrite the real session's callbacks with dead weak refs.
@@ -160,6 +166,8 @@ final class IOSViewerSession: ObservableObject {
         guard !callbacksConfigured else { return }
         callbacksConfigured = true
         NSLog("[viewer] configureCallbacks — setting networkManager callbacks")
+        CrashLog.write("configureCallbacks: session #\(instanceId) wiring onControlData")
+        let sessionId = instanceId
 
         // PIN challenges that arrive before this point are buffered in
         // networkManager.pendingControlData and replayed when onControlData is set.
@@ -167,10 +175,14 @@ final class IOSViewerSession: ObservableObject {
             NSLog("[viewer] onControlData fired: %d bytes", data.count)
             guard let msg = try? Peariscope_ControlMessage(serializedBytes: data) else {
                 NSLog("[viewer] onControlData: failed to parse protobuf")
+                CrashLog.write("onControlData: session #\(sessionId) failed to parse \(data.count)B")
                 return
             }
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self else {
+                    CrashLog.write("onControlData: session #\(sessionId) is gone, dropped \(data.count)B")
+                    return
+                }
                 let msgType: String
                 switch msg.msg {
                 case .codecNegotiation: msgType = "codecNeg"
@@ -820,6 +832,7 @@ final class IOSViewerSession: ObservableObject {
     }
 
     func disconnect() {
+        CrashLog.write("disconnect(): session #\(instanceId) clearing networkManager callbacks")
         isReconnecting = false
         connectionLost = false
         memoryWatchdog.stop()

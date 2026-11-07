@@ -5,6 +5,8 @@ import Foundation
 /// Writes to Documents/peariscope-crash.log as JSONL (one JSON object per line).
 enum CrashLog {
     nonisolated(unsafe) static var fileHandle: FileHandle?
+    /// Raw descriptor of `fileHandle`, for the signal handler (see crashSignalHandler).
+    nonisolated(unsafe) static var fd: Int32 = -1
     nonisolated(unsafe) static var logPath: String = ""
     /// Stash the previous session's log so it survives setup() truncation
     nonisolated(unsafe) static var previousLog: String?
@@ -48,6 +50,7 @@ enum CrashLog {
         // Now truncate and start fresh for this session
         FileManager.default.createFile(atPath: logPath, contents: nil)
         fileHandle = FileHandle(forWritingAtPath: logPath)
+        fd = fileHandle?.fileDescriptor ?? -1
         write("App launched", level: .info)
         write("Memory check", level: .info, extra: ["startup": true])
     }

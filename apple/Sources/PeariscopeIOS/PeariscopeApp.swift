@@ -11,8 +11,7 @@ import PeariscopeCore
 final class ConnectionSounds {
     static let shared = ConnectionSounds()
 
-    private var audioEngine: AVAudioEngine?
-    private var playerNode: AVAudioPlayerNode?
+    private let chimes = ChimeEngine()
 
     private init() {}
 
@@ -41,8 +40,13 @@ final class ConnectionSounds {
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         // Add a small gap between notes
         let gapDuration = 0.03
-        let totalDuration = notes.reduce(0.0) { $0 + $1.dur } + gapDuration * Double(max(0, notes.count - 1))
-        let totalFrames = AVAudioFrameCount(totalDuration * sampleRate)
+        // Sum the same truncated per-note counts the loop below writes. Truncating
+        // the summed duration instead came out one frame short for the disconnect
+        // chime, and that one-frame overrun tripped AVFAudio's heap guard when the
+        // buffer was freed.
+        let gapFrames = Int(gapDuration * sampleRate)
+        let noteFrames = notes.reduce(0) { $0 + Int($1.dur * sampleRate) }
+        let totalFrames = AVAudioFrameCount(noteFrames + gapFrames * max(0, notes.count - 1))
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames)!
         buffer.frameLength = totalFrames
         guard let channelData = buffer.floatChannelData?[0] else { return buffer }
@@ -76,38 +80,61 @@ final class ConnectionSounds {
 
                 channelData[frameOffset + i] = note.vol * envelope * (fundamental + octave + fifth)
             }
-            frameOffset += frames + Int(gapDuration * sampleRate)
+            frameOffset += frames + gapFrames
         }
 
         return buffer
     }
 
     private func play(buffer: AVAudioPCMBuffer) {
-        // AVAudioSession is configured once at app launch (PeariscopeAppDelegate).
-        // Do NOT call setCategory/setActive here — it deadlocks the main thread.
-        Task { @MainActor [weak self] in
-            let engine = AVAudioEngine()
-            let player = AVAudioPlayerNode()
-            engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: buffer.format)
+        chimes.play(buffer)
+    }
+}
 
-            do {
-                try engine.start()
-            } catch {
-                return
+/// Plays the connection chimes on one long-lived engine, off the main thread.
+///
+/// This used to build a new AVAudioEngine per chime and release the previous one
+/// on the main actor. Tearing down an engine takes an AVFAudio lock that a
+/// stuck render thread can hold (see crashSignalHandler), so one engine that is
+/// never released, driven from its own queue, keeps such a stall off the UI.
+final class ChimeEngine: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "peariscope.connection-chimes")
+    // Touched only on `queue`.
+    private var engine: AVAudioEngine?
+    private var player: AVAudioPlayerNode?
+    private var generation = 0
+
+    func play(_ buffer: AVAudioPCMBuffer) {
+        // AVAudioPCMBuffer isn't Sendable; it is built fresh per chime and never
+        // touched again by the caller.
+        nonisolated(unsafe) let buffer = buffer
+        queue.async { [self] in
+            // AVAudioSession is configured once at app launch (PeariscopeAppDelegate).
+            // Do NOT call setCategory/setActive here — it deadlocks.
+            if engine == nil {
+                let engine = AVAudioEngine()
+                let player = AVAudioPlayerNode()
+                engine.attach(player)
+                engine.connect(player, to: engine.mainMixerNode, format: buffer.format)
+                self.engine = engine
+                self.player = player
             }
-
-            self?.audioEngine = engine
-            self?.playerNode = player
-
-            player.play()
-            player.scheduleBuffer(buffer) { [weak self] in
-                DispatchQueue.main.async {
-                    self?.audioEngine?.stop()
-                    self?.audioEngine = nil
-                    self?.playerNode = nil
+            guard let engine, let player else { return }
+            // The engine stops on its own after an interruption or route change.
+            if !engine.isRunning {
+                do { try engine.start() } catch { return }
+            }
+            generation += 1
+            let scheduled = generation
+            player.scheduleBuffer(buffer, at: nil, options: .interrupts) { [weak self] in
+                // Pause rather than stop/release so nothing gets torn down, and
+                // only if no newer chime replaced this one.
+                self?.queue.async {
+                    guard let self, self.generation == scheduled else { return }
+                    self.engine?.pause()
                 }
             }
+            if !player.isPlaying { player.play() }
         }
     }
 }
@@ -125,6 +152,34 @@ struct ShareSheet: UIViewControllerRepresentable {
         UIActivityViewController(activityItems: items, applicationActivities: nil)
     }
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+/// Logs a fatal signal to the crash log, then re-raises it for the system report.
+///
+/// Signals arrive on whichever thread faulted. This used to be a closure inside
+/// the app delegate, which Swift 6 made main-actor isolated: on any other thread
+/// its isolation check trapped again inside the handler and the thread hung
+/// instead of dying. When that thread held an AVFAudio lock (a caulk heap-guard
+/// trap while freeing an audio buffer), the main thread blocked on the same lock
+/// and the app froze until the watchdog killed it (0x8BADF00D, 2026-11-07).
+///
+/// It must stay nonisolated and must not allocate — the heap may be what broke —
+/// so it only writes a fixed string with write(2).
+private nonisolated func crashSignalHandler(_ sig: Int32) {
+    let msg: StaticString
+    switch sig {
+    case SIGABRT: msg = "{\"level\":\"fatal\",\"msg\":\"CRASH: SIGABRT\"}\n"
+    case SIGSEGV: msg = "{\"level\":\"fatal\",\"msg\":\"CRASH: SIGSEGV\"}\n"
+    case SIGBUS:  msg = "{\"level\":\"fatal\",\"msg\":\"CRASH: SIGBUS\"}\n"
+    case SIGILL:  msg = "{\"level\":\"fatal\",\"msg\":\"CRASH: SIGILL\"}\n"
+    case SIGTRAP: msg = "{\"level\":\"fatal\",\"msg\":\"CRASH: SIGTRAP\"}\n"
+    case SIGFPE:  msg = "{\"level\":\"fatal\",\"msg\":\"CRASH: SIGFPE\"}\n"
+    default:      msg = "{\"level\":\"fatal\",\"msg\":\"CRASH: signal\"}\n"
+    }
+    let fd = CrashLog.fd
+    if fd >= 0 { _ = write(fd, msg.utf8Start, msg.utf8CodeUnitCount) }
+    signal(sig, SIG_DFL)
+    raise(sig)
 }
 
 class PeariscopeAppDelegate: NSObject, UIApplicationDelegate {
@@ -157,24 +212,8 @@ class PeariscopeAppDelegate: NSObject, UIApplicationDelegate {
         }
 
         // Install crash signal handlers that write to persistent file
-        let crashSignals: [Int32] = [SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGFPE]
-        for sig in crashSignals {
-            signal(sig) { sigNum in
-                let name: String
-                switch sigNum {
-                case SIGABRT: name = "SIGABRT"
-                case SIGSEGV: name = "SIGSEGV"
-                case SIGBUS:  name = "SIGBUS"
-                case SIGILL:  name = "SIGILL"
-                case SIGTRAP: name = "SIGTRAP"
-                case SIGFPE:  name = "SIGFPE"
-                default:      name = "SIG\(sigNum)"
-                }
-                CrashLog.write("CRASH: \(name) (\(sigNum)) — memory: \(os_proc_available_memory() / 1_048_576) MB")
-                // Re-raise to get the default crash report
-                signal(sigNum, SIG_DFL)
-                raise(sigNum)
-            }
+        for sig in [SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGFPE] {
+            signal(sig, crashSignalHandler)
         }
 
         // Monitor memory pressure — jetsam kills bypass signal handlers,

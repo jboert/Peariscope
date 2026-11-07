@@ -80,6 +80,7 @@ public final class NetworkManager: ObservableObject {
     public var onControlData: ((Data) -> Void)? {
         didSet {
             NSLog("[net] onControlData didSet: callback=%@, pendingBuffer=%d", onControlData != nil ? "SET" : "NIL", pendingControlData.count)
+            debugLog("[net] onControlData \(onControlData != nil ? "SET" : "NIL") pendingBuffer=\(pendingControlData.count)")
             if let cb = onControlData, !pendingControlData.isEmpty {
                 let buffered = pendingControlData
                 pendingControlData.removeAll()
