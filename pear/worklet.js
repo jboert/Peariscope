@@ -471,6 +471,12 @@ const discoveryKey = crypto.discoveryKey
 
 const CODE_LENGTH = 12 // 12 BIP39 words
 const BIP39_WORDS = require('./lib/bip39-words')
+const ParallelDialer = require('./lib/parallel-dial')
+
+// Independent punch attempts the viewer runs at once. At the ~7% per-attempt
+// success measured between two T-Mobile CGNATs, 6 gives ~35% per ~12s round
+// instead of ~7%. Each is a few UDP packets a second, so the cost is small.
+const PARALLEL_DIALS = 6
 
 class PeariscopeWorklet {
   constructor () {
@@ -728,7 +734,9 @@ class PeariscopeWorklet {
     // This matters because hyperswarm already retries through a relay on
     // HOLEPUNCH_ABORTED (shouldForceRelaying in hyperswarm/index.js) — the very
     // error our punch-exhaustion failures produce. That retry has been dead
-    // code purely because relayThrough was null.
+    // code purely because relayThrough was null. Since hyperswarm 4.17.1 the
+    // same retry also covers CANNOT_HOLEPUNCH, so a punch that never starts
+    // reaches the relay instead of burning the backoff tiers.
     //
     // Passed as a function so relaying stays a FALLBACK: hyperswarm's default
     // wrapper uses the relay when a punch has already failed (force) or when
@@ -1138,26 +1146,14 @@ class PeariscopeWorklet {
     this._connectionSucceeded = false
     sendConnectionStatus('starting', 'Starting network...')
 
-    // Join the topic ONCE and let Hyperswarm handle holepunch + relay internally.
-    // Previous approach: 8 attempts × 15s, each calling swarm.leave() + discovery.destroy().
-    // Problem: leave() destroys peerInfo which has forceRelaying=true after a failed holepunch,
-    // so the relay fallback never triggers. Hyperswarm needs the peerInfo to survive across
-    // its internal retry cycle: holepunch fail → set forceRelaying → retry with relay.
-    const discovery = this.swarm.join(topic, { server: false, client: true })
+    // The viewer finds the host itself and dials it with several punch
+    // attempts at once (lib/parallel-dial.js) instead of swarm.join(), which
+    // dials one attempt at a time. Hyperswarm can't be kept for discovery
+    // alone: blocking its dial in the firewall hook bans the host's key, and
+    // the next connect to the same host would then never dial at all.
+    // Reconnecting after a drop is the native ReconnectionManager's job.
     sendConnectionStatus('searching', 'Searching for host...')
-
-    discovery.flushed().then(() => {
-      if (this._connectionSucceeded) return
-      sendLog('DHT lookup flushed for code: ' + code)
-      sendConnectionStatus('connecting', 'Connecting to host...')
-    }).catch((err) => {
-      sendLog('DHT lookup flush error: ' + (err.message || err))
-    })
-
-    this.swarm.flush().then(() => {
-      if (this._connectionSucceeded) return
-      sendLog('Swarm flush complete (all connection attempts dispatched)')
-    }).catch(() => {})
+    const discovery = this._dialHost(topic, code)
 
     // Periodic status logging so we can see holepunch/relay progress
     const startTime = Date.now()
@@ -1167,10 +1163,13 @@ class PeariscopeWorklet {
         return
       }
       const elapsed = Math.round((Date.now() - startTime) / 1000)
+      const dialer = discovery.dialer
       const swarmInfo = {
         connections: this.swarm.connections.size,
         peers: this.swarm.peers.size,
-        connecting: this.swarm.connecting || 0,
+        connecting: dialer ? dialer.active.size : 0,
+        attempts: dialer ? dialer.attempts : 0,
+        failures: dialer ? dialer.failures : 0,
         firewalled: this.swarm.dht ? this.swarm.dht.firewalled : '?',
         randomized: this.swarm.dht ? this.swarm.dht.randomized : '?'
       }
@@ -1517,6 +1516,72 @@ class PeariscopeWorklet {
       token: entropy,
       topic: this._deriveTopicFromCode(code)
     }
+  }
+
+  /**
+   * Find the host announcing `topic` and dial it with PARALLEL_DIALS punch
+   * attempts at once. Returns a handle whose destroy() stops the lookup and
+   * every attempt — the same contract _pendingConnection.discovery had when
+   * it was a hyperswarm PeerDiscovery.
+   */
+  _dialHost (topic, code) {
+    const dht = this.swarm.dht
+    const handle = {
+      destroyed: false,
+      dialer: null,
+      lookup: null,
+      retryTimer: null,
+      destroy: async () => {
+        handle.destroyed = true
+        clearTimeout(handle.retryTimer)
+        if (handle.lookup) handle.lookup.destroy()
+        if (handle.dialer) handle.dialer.destroy()
+      }
+    }
+
+    const findHost = async () => {
+      if (handle.destroyed) return
+      let host = null
+      try {
+        handle.lookup = dht.lookup(topic)
+        for await (const result of handle.lookup) {
+          host = (result.peers || []).find((p) => !b4a.equals(p.publicKey, this.keyPair.publicKey))
+          if (host) break
+        }
+      } catch (e) {
+        if (!handle.destroyed) sendLog('Host lookup error: ' + (e.message || e))
+      }
+      handle.lookup = null
+      if (handle.destroyed) return
+
+      if (!host) {
+        sendLog('Host not found on DHT yet for code: ' + code + ' — retrying lookup')
+        handle.retryTimer = setTimeout(findHost, 2000)
+        return
+      }
+
+      sendLog('Host found: ' + b4a.toString(host.publicKey, 'hex').slice(0, 16) + '...' +
+        ' relayAddrs=' + (host.relayAddresses ? host.relayAddresses.length : 0) +
+        ' — dialing ' + PARALLEL_DIALS + ' attempts in parallel')
+      sendConnectionStatus('connecting', 'Connecting to host...')
+
+      handle.dialer = new ParallelDialer(dht, host.publicKey, {
+        keyPair: this.keyPair,
+        relayAddresses: host.relayAddresses,
+        relayThrough: RELAY_PUBLIC_KEY,
+        parallel: PARALLEL_DIALS,
+        log: (msg) => sendLog('[dial] ' + msg),
+        onconnection: (conn) => {
+          sendLog('Swarm connection: client remoteKey=' + b4a.toString(conn.remotePublicKey, 'hex').slice(0, 16) +
+            ' relay=' + (conn.relayType || 'none'))
+          this._onPeerConnection(conn, { publicKey: conn.remotePublicKey, client: true, topics: [topic] })
+        }
+      })
+      handle.dialer.start()
+    }
+
+    findHost()
+    return handle
   }
 
   async lookupPeer (code) {
