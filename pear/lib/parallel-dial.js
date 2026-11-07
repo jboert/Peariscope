@@ -7,6 +7,11 @@
 // it a fresh external port and the attempts are independent — running them
 // side by side costs the same ~12s as running one.
 //
+// Fresh sockets are not free, though: the host opens one per attempt too, and
+// a connection can only open new UDP sockets so fast before their NAT samples
+// stop getting replies. Keep `parallel`, `stagger` and `restartDelay` paced to
+// what the host's link tolerates (see PARALLEL_DIALS in worklet.js).
+//
 // The first socket to open wins and the rest are destroyed immediately.
 // That matters on the host: hyperswarm replaces an established connection
 // when a second one from the same key completes (_handleServerConnection),

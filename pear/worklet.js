@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Bare runtime worklet for Peariscope P2P networking
 // Runs inside BareWorklet on both macOS and iOS via BareKit
-const WORKLET_VERSION = 'v65-fast-retry-20260811'
+const WORKLET_VERSION = 'v69-paced-parallel-20261107'
 
 // Register global error handlers FIRST to prevent SIGABRT on unhandled errors
 if (typeof Bare !== 'undefined') {
@@ -473,10 +473,30 @@ const CODE_LENGTH = 12 // 12 BIP39 words
 const BIP39_WORDS = require('./lib/bip39-words')
 const ParallelDialer = require('./lib/parallel-dial')
 
-// Independent punch attempts the viewer runs at once. At the ~7% per-attempt
-// success measured between two T-Mobile CGNATs, 6 gives ~35% per ~12s round
-// instead of ~7%. Each is a few UDP packets a second, so the cost is small.
-const PARALLEL_DIALS = 6
+// Independent punch attempts the viewer runs at once. 1 dials through
+// swarm.join() as before lib/parallel-dial.js existed.
+//
+// Every attempt opens a brand-new UDP socket on BOTH ends (hyperdht's
+// Holepuncher takes a fresh pool socket, then pings ~4 DHT nodes from it to
+// learn its NAT mapping). The host's connection only tolerates new sockets at a
+// limited rate: measured 2026-11-07, 2-3 at once sample fine, 6 at once come
+// back UNKNOWN nearly every time, and once that allowance is drained even
+// single samples fail for ~1.5 minutes. A host whose sample fails aborts the
+// punch before sending a packet. 6 slots retrying every ~10s (one new socket
+// per ~1.7s) drained it within minutes and nothing connected after that.
+//
+// So the dialer is paced: 3 slots started 1.5s apart, 2s pause before a slot
+// retries — about one new socket per 4s, the rate that sampled cleanly.
+const PARALLEL_DIALS = 3
+const DIAL_STAGGER = 1500
+const DIAL_RESTART_DELAY = 2000
+
+// true runs HyperDHT and Hyperswarm with upstream defaults, the way Keet does:
+// no fixed port, no randomPunchInterval or backoff tuning, no cached-node
+// injection and no forced NAT probe or remoteAddress override. Cellular punches
+// to this host failed every attempt on 2026-11-07 while Keet connected on the
+// same network, so this isolates whether our tuning is the cause.
+const STOCK_DHT = true
 
 class PeariscopeWorklet {
   constructor () {
@@ -528,7 +548,7 @@ class PeariscopeWorklet {
     this._cachedNodes = nodes
     sendLog('Received ' + nodes.length + ' cached DHT nodes from native')
     // If swarm is already running, add nodes to the DHT
-    if (this.swarm && this.swarm.dht) {
+    if (!STOCK_DHT && this.swarm && this.swarm.dht) {
       this._injectCachedNodes(nodes)
     }
   }
@@ -617,7 +637,7 @@ class PeariscopeWorklet {
       })
     }
 
-    const dhtOpts = {
+    const dhtOpts = STOCK_DHT ? {} : {
       port: 49800 + Math.floor(Math.random() * 1000),
       // Random punching is the only way through a symmetric ("randomized") NAT,
       // and hyperdht throttles it hard by default: one punch in flight
@@ -657,7 +677,7 @@ class PeariscopeWorklet {
     // can't bootstrap at all — connections take 30-60+ seconds or time out.
     // Use `nodes` instead — these are added to the routing table after bootstrap,
     // speeding up lookups without replacing the reliable default bootstrap.
-    if (this._cachedNodes && this._cachedNodes.length > 0) {
+    if (!STOCK_DHT && this._cachedNodes && this._cachedNodes.length > 0) {
       const routingNodes = this._cachedNodes
         .filter(n => n.host && n.port && _isPublicRoutableHost(n.host))
         .slice(0, 50)
@@ -677,7 +697,7 @@ class PeariscopeWorklet {
     sendLog('DHT bootstrap: ' + (dhtOpts.bootstrap ? dhtOpts.bootstrap.length + ' custom' : 'defaults') + ', routing nodes: ' + (dhtOpts.nodes ? dhtOpts.nodes.length : 0))
 
     const dht = new HyperDHT(dhtOpts)
-    sendLog('DHT created: port=' + dhtOpts.port)
+    sendLog('DHT created: port=' + (dhtOpts.port || 'default') + (STOCK_DHT ? ' (STOCK_DHT)' : ''))
 
     const swarmOpts = {
       keyPair: this.keyPair,
@@ -697,6 +717,7 @@ class PeariscopeWorklet {
       // attempt 3, where backing off is genuinely right.
       backoffs: [1000, 3000, 6000, 30000]
     }
+    if (STOCK_DHT) delete swarmOpts.backoffs
 
     // Instrumentation: we log nothing until a connection fully succeeds, so a
     // peer that dials us and never completes the handshake is invisible — the
@@ -795,7 +816,7 @@ class PeariscopeWorklet {
     }
 
     // Inject cached nodes into DHT after construction
-    if (this._cachedNodes && this._cachedNodes.length > 0) {
+    if (!STOCK_DHT && this._cachedNodes && this._cachedNodes.length > 0) {
       this._injectCachedNodes(this._cachedNodes)
     }
 
@@ -837,8 +858,8 @@ class PeariscopeWorklet {
     // firewalled=true, which makes the holepuncher pick the wrong strategy and
     // every DHT.connect dies to HOLEPUNCH_ABORTED at server-side HANDSHAKE_INITIAL_TIMEOUT.
     // Kick the probe immediately and wait up to ~6s for it to settle.
-    sendLog('Forcing early NAT probe (bypassing 20-minute stableTicks)...')
-    const natDeadline = Date.now() + 3000
+    if (!STOCK_DHT) sendLog('Forcing early NAT probe (bypassing 20-minute stableTicks)...')
+    const natDeadline = STOCK_DHT ? 0 : Date.now() + 3000
     let probeAttempts = 0
     while (dht.firewalled && Date.now() < natDeadline) {
       probeAttempts++
@@ -878,7 +899,9 @@ class PeariscopeWorklet {
     // traffic, so both ends sit there until UDX times out (~13s) with
     // "connection timed out" and nothing ever crosses the wire.
     const routingNodes = dht.toArray().length
-    if (dht.firewalled && dht._nat && dht._nat.host && routingNodes === 0) {
+    if (STOCK_DHT) {
+      sendLog('STOCK_DHT: upstream NAT handling, no override')
+    } else if (dht.firewalled && dht._nat && dht._nat.host && routingNodes === 0) {
       sendLog('NAT probe could not run (empty routing table) but we have external address ' +
         dht._nat.host + ':' + dht._nat.port + ' — forcing firewalled=false')
       dht.firewalled = false
@@ -887,7 +910,7 @@ class PeariscopeWorklet {
       sendLog('NAT probe reports firewalled=true against ' + routingNodes +
         ' routing nodes — trusting it; holepunching will be used')
     }
-    if (!dht.firewalled && dht._nat && dht._nat.host) {
+    if (!STOCK_DHT && !dht.firewalled && dht._nat && dht._nat.host) {
       const origRemoteAddress = dht.remoteAddress.bind(dht)
       dht.remoteAddress = function () {
         const orig = origRemoteAddress()
@@ -1153,7 +1176,7 @@ class PeariscopeWorklet {
     // the next connect to the same host would then never dial at all.
     // Reconnecting after a drop is the native ReconnectionManager's job.
     sendConnectionStatus('searching', 'Searching for host...')
-    const discovery = this._dialHost(topic, code)
+    const discovery = PARALLEL_DIALS > 1 ? this._dialHost(topic, code) : this._joinHost(topic, code)
 
     // Periodic status logging so we can see holepunch/relay progress
     const startTime = Date.now()
@@ -1167,7 +1190,7 @@ class PeariscopeWorklet {
       const swarmInfo = {
         connections: this.swarm.connections.size,
         peers: this.swarm.peers.size,
-        connecting: dialer ? dialer.active.size : 0,
+        connecting: dialer ? dialer.active.size : (this.swarm.connecting || 0),
         attempts: dialer ? dialer.attempts : 0,
         failures: dialer ? dialer.failures : 0,
         firewalled: this.swarm.dht ? this.swarm.dht.firewalled : '?',
@@ -1519,6 +1542,25 @@ class PeariscopeWorklet {
   }
 
   /**
+   * Find and dial the host through swarm.join(), one attempt at a time with
+   * hyperswarm's own retry and relay fallback. Its PeerDiscovery already
+   * satisfies the destroy() contract _pendingConnection.discovery needs.
+   */
+  _joinHost (topic, code) {
+    const discovery = this.swarm.join(topic, { server: false, client: true })
+
+    discovery.flushed().then(() => {
+      if (this._connectionSucceeded) return
+      sendLog('DHT lookup flushed for code: ' + code)
+      sendConnectionStatus('connecting', 'Connecting to host...')
+    }).catch((err) => {
+      sendLog('DHT lookup flush error: ' + (err.message || err))
+    })
+
+    return discovery
+  }
+
+  /**
    * Find the host announcing `topic` and dial it with PARALLEL_DIALS punch
    * attempts at once. Returns a handle whose destroy() stops the lookup and
    * every attempt — the same contract _pendingConnection.discovery had when
@@ -1570,6 +1612,8 @@ class PeariscopeWorklet {
         relayAddresses: host.relayAddresses,
         relayThrough: RELAY_PUBLIC_KEY,
         parallel: PARALLEL_DIALS,
+        stagger: DIAL_STAGGER,
+        restartDelay: DIAL_RESTART_DELAY,
         log: (msg) => sendLog('[dial] ' + msg),
         onconnection: (conn) => {
           sendLog('Swarm connection: client remoteKey=' + b4a.toString(conn.remotePublicKey, 'hex').slice(0, 16) +
