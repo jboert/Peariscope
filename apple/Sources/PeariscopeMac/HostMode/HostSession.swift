@@ -5,6 +5,7 @@ import PeariscopeCore
 import os.log
 import AVFoundation
 import Security
+import IOKit.pwr_mgt
 
 /// Orchestrates the host-side pipeline: capture -> encode -> network, network -> input injection
 /// Supports adaptive quality and H.264/H.265 codec switching.
@@ -75,6 +76,8 @@ public final class HostSession: ObservableObject {
     private let localAdvertiser = LocalDiscoveryAdvertiser()
     /// True when screen capture + encoders are running (peers are connected)
     private var isCaptureRunning = false
+    /// Keeps the display on while capture runs; 0 when not held
+    private var displayAssertion: IOPMAssertionID = 0
 
     private var frameCountInInterval = 0
     private var frameId: UInt32 = 0
@@ -394,6 +397,10 @@ public final class HostSession: ObservableObject {
             HostSession.log("[host] Using H.264 encoder")
         }
 
+        // A sleeping display produces no new frames, so the viewer would see
+        // black until someone touched the Mac
+        holdDisplayAwake()
+
         // Create and start screen capture
         let cap = ScreenCapture()
         cap.onFrame = { [weak self] pixelBuffer, pts in
@@ -424,6 +431,7 @@ public final class HostSession: ObservableObject {
             if audioEnabled { startAudioCapture() }
             HostSession.log("[host] Capture started successfully")
         } catch {
+            releaseDisplayAwake()
             HostSession.log("[host] Failed to start capture: \(error)")
             let nsError = error as NSError
             if nsError.domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain" && nsError.code == -3801 {
@@ -461,6 +469,35 @@ public final class HostSession: ObservableObject {
         peerResolutions.removeAll()
         fps = 0
         frameCountInInterval = 0
+        releaseDisplayAwake()
+    }
+
+    /// Wake the display if it has gone to sleep and keep it on until released
+    private func holdDisplayAwake() {
+        guard displayAssertion == 0 else { return }
+        // Declaring user activity is what turns a sleeping display back on;
+        // the activity assertion times out by itself
+        var activity: IOPMAssertionID = 0
+        IOPMAssertionDeclareUserActivity("Peariscope viewer connected" as CFString, kIOPMUserActiveLocal, &activity)
+        let result = IOPMAssertionCreateWithName(
+            kIOPMAssertPreventUserIdleDisplaySleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            "Peariscope viewer is watching the screen" as CFString,
+            &displayAssertion
+        )
+        if result != kIOReturnSuccess {
+            displayAssertion = 0
+            HostSession.log("[host] Failed to keep display awake: \(result)")
+        } else {
+            HostSession.log("[host] Display woken and held awake for viewer")
+        }
+    }
+
+    private func releaseDisplayAwake() {
+        guard displayAssertion != 0 else { return }
+        IOPMAssertionRelease(displayAssertion)
+        displayAssertion = 0
+        HostSession.log("[host] Released display-awake hold")
     }
 
     /// Compute optimal capture resolution based on connected viewers and update pipeline if needed
